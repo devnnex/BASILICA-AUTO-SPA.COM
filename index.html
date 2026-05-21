@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Yacar's | Lavadero</title>
+
+  <script>
+    (function(){
+      try {
+        if (localStorage.getItem("yacar-theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (error) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+<div class="admin-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo brand-lockup">
+      <img src="images/logo.png" alt="Yacar's Lavadero">
+      <div>
+        <strong>Basilica AutoSpa</strong>
+        <span>Operations Suite</span>
+      </div>
+    </div>
+
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Cambiar a modo noche"></button>
+
+    <button data-section="activos"><i class="fa-solid fa-gauge-high"></i> Servicios activos</button>
+    <!--<button data-section="recogidas"><i class="fa-solid fa-calendar-check"></i> Recogidas</button>-->
+    <button data-section="gestion"><i class="fa-solid fa-plus"></i> Crear servicio</button>
+    <button data-section="ingresos"><i class="fa-solid fa-receipt"></i> Servicios realizados</button>
+    <button data-section="servicios"><i class="fa-solid fa-spray-can-sparkles"></i> Servicios</button>
+    <button data-section="trabajadores"><i class="fa-solid fa-user-group"></i> Trabajadores</button>
+    <button data-section="liquidaciones"><i class="fa-solid fa-file-invoice-dollar"></i> Liquidaciones</button>
+    <button data-section="ganancias"><i class="fa-solid fa-chart-line"></i> Inteligencia</button>
+  </aside>
+
+  <main class="content">
+
+    <section id="activos" class="section active">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Centro operativo</span>
+          <h3>Lavados en curso</h3>
+        </div>
+        <input id="buscadorActivos" placeholder="Buscar por placa" autocomplete="off">
+      </div>
+
+      <div class="kpis kpis-compact">
+        <div class="kpi">
+          <span id="kpiActivos">0</span>
+          <small>Servicios activos</small>
+        </div>
+        <div class="kpi">
+          <span id="kpiActivosIngresos">$0</span>
+          <small>Ingreso proyectado</small>
+        </div>
+        <div class="kpi">
+          <span id="kpiActivosGastos">$0</span>
+          <small>Gastos registrados</small>
+        </div>
+        <div class="kpi kpi-profit">
+          <span id="kpiActivosNeto">$0</span>
+          <small>Neto estimado</small>
+        </div>
+      </div>
+
+      <div id="lista" class="list"></div>
+    </section>
+
+    <section id="recogidas" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Agenda externa</span>
+          <h3>Recogidas programadas</h3>
+        </div>
+      </div>
+      <div id="listaRecogidas" class="grid-recogidas"></div>
+    </section>
+
+    <section id="gestion" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Configuraci&oacute;n</span>
+          <h3>Gesti&oacute;n operativa</h3>
+        </div>
+      </div>
+
+      <div class="forms-grid">
+        <div class="card">
+          <h4>Crear servicio</h4>
+          <input id="srvNombre" placeholder="Nombre del servicio">
+          <input id="srvPrecio" type="number" placeholder="Precio">
+          <button id="btnCrearServicio"><i class="fa-solid fa-plus"></i> Agregar servicio</button>
+        </div>
+
+        <div class="card">
+          <h4>Crear trabajador</h4>
+          <input id="trabNombre" placeholder="Nombre del trabajador">
+          <input id="trabCorreo" type="email" placeholder="Correo del trabajador">
+          <button id="btnCrearTrabajador"><i class="fa-solid fa-user-plus"></i> Agregar trabajador</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ingresos" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Historial comercial</span>
+          <h3>Servicios realizados</h3>
+        </div>
+        <div class="history-actions">
+          <input id="buscador" placeholder="Buscar por placa o trabajador">
+          <button id="btnHistorialPlaca" class="history-open-button" type="button">
+            <i class="fa-solid fa-clock-rotate-left"></i> Historial placa
+          </button>
+        </div>
+      </div>
+
+      <div class="kpis kpis-compact">
+        <div class="kpi">
+          <span id="kpiServicios">0</span>
+          <small>Servicios hoy</small>
+        </div>
+        <div class="kpi">
+          <span id="kpiHoy">$0</span>
+          <small>Ingresos hoy</small>
+        </div>
+        <div class="kpi">
+          <span id="kpiMes">$0</span>
+          <small>Ingresos del mes</small>
+        </div>
+      </div>
+
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Placa</th>
+            <th>Servicio</th>
+            <th>Trabajador</th>
+            <th>Precio</th>
+            <th>Tiempo</th>
+          </tr>
+        </thead>
+        <tbody id="tablaIngresos"></tbody>
+      </table>
+    </section>
+
+    <section id="ganancias" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Inteligencia del negocio</span>
+          <h3>Ingresos</h3>
+        </div>
+
+        <select id="filtroGananciasFecha" class="glass-select">
+          <option value="15">&Uacute;ltimos 15 d&iacute;as</option>
+          <option value="30">&Uacute;ltimos 30 d&iacute;as</option>
+          <option value="365">Este a&ntilde;o</option>
+        </select>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <span id="kpiTotalLavados">0</span>
+          <small>Total lavados</small>
+        </div>
+
+        <div class="kpi">
+          <span id="kpiIngresosRango">$0</span>
+          <small>Ingresos del per&iacute;odo</small>
+        </div>
+
+        <div class="kpi">
+          <span id="kpiPeriodoAnterior">0</span>
+          <small>Lavados per&iacute;odo anterior</small>
+        </div>
+      </div>
+
+      <div id="tableroBurbujas" class="bubble-board"></div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h4>Ingresos por mes</h4>
+          <canvas id="chartIngresosMes"></canvas>
+        </div>
+
+        <div class="chart-card">
+          <h4>Top servicios m&aacute;s realizados</h4>
+          <canvas id="chartTopServicios"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section id="servicios" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Cat&aacute;logo</span>
+          <h3>Servicios registrados</h3>
+        </div>
+      </div>
+      <div id="gridServicios" class="grid-servicios"></div>
+    </section>
+
+    <section id="trabajadores" class="section">
+      <div class="section-heading header-trabajadores">
+        <div>
+          <span class="eyebrow">Equipo</span>
+        <h3>Trabajadores</h3>
+        </div>
+      </div>
+
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Estado</th>
+            <th>Correo</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tablaTrabajadores"></tbody>
+      </table>
+    </section>
+
+    <section id="liquidaciones" class="section">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">N&oacute;mina operativa</span>
+          <h3>Liquidaciones</h3>
+        </div>
+        <div class="filters-row">
+          <select id="filtroTrabajador" class="glass-select">
+            <option value="">Todos los trabajadores</option>
+          </select>
+
+          <select id="filtroFecha" class="glass-select">
+            <option value="15">&Uacute;ltimos 15 d&iacute;as</option>
+            <option value="30">Este mes</option>
+            <option value="365">Este a&ntilde;o</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="cardsTrabajador" class="cards-glass"></div>
+
+      <div class="filters-row table-filters">
+        <select id="filtroLiquidacionesTrabajador" class="glass-select">
+          <option value="">Todos los trabajadores</option>
+        </select>
+
+        <select id="filtroLiquidacionesFecha" class="glass-select">
+          <option value="15">&Uacute;ltimos 15 d&iacute;as</option>
+          <option value="30">Este mes</option>
+          <option value="365">Este a&ntilde;o</option>
+        </select>
+      </div>
+
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Estado</th>
+            <th>Total generado</th>
+            <th>Liquidaci&oacute;n</th>
+            <th>Fecha liquidaci&oacute;n</th>
+          </tr>
+        </thead>
+        <tbody id="tablaLiquidaciones"></tbody>
+      </table>
+    </section>
+
+  </main>
+</div>
+
+<div id="loader" class="loader hidden">
+  <div class="loader-content">
+    <div class="premium-loader-motion" aria-hidden="true">
+      <span></span>
+      <i></i>
+      <span></span>
+    </div>
+    <div class="loader-text">Cargando...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+<script>
+  (function(){
+    emailjs.init("UamfXRf4_dZ869VNn");
+  })();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="js/config.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
