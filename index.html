@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Basilica AutoSpa | Lavadero</title>
+  <title>Admin Yacar's | Lavadero</title>
 
   <script>
     (function(){
       try {
         if (localStorage.getItem("yacar-theme") === "dark") {
           document.documentElement.dataset.theme = "dark";
+        }
+        if (localStorage.getItem("basilica-session")) {
+          document.documentElement.classList.add("auth-checking");
         }
       } catch (error) {}
     })();
@@ -19,6 +22,37 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body>
+<script>
+  (function(){
+    try {
+      if (localStorage.getItem("basilica-session")) {
+        document.body.classList.add("auth-checking");
+      }
+    } catch (error) {}
+  })();
+</script>
+
+<section id="loginScreen" class="auth-screen">
+  <form id="loginForm" class="auth-card">
+    <div class="brand-lockup auth-brand">
+      <img src="images/logo.png" alt="Basilica AutoSpa">
+      <div>
+        <strong>Basilica AutoSpa</strong>
+        <span>Acceso administrativo</span>
+      </div>
+    </div>
+
+    <label for="loginCorreo">Correo</label>
+    <input id="loginCorreo" type="email" autocomplete="username" placeholder="admin@correo.com" required>
+
+    <label for="loginPassword">Contrase&ntilde;a</label>
+    <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Tu contrase&ntilde;a" required>
+
+    <button id="btnLogin" type="submit"><i class="fa-solid fa-lock"></i> Ingresar</button>
+    <button id="btnSetupJefe" class="auth-secondary hidden" type="button">Crear primer jefe</button>
+    <p class="auth-note">La sesi&oacute;n se cierra autom&aacute;ticamente a las 12:00 a. m.</p>
+  </form>
+</section>
 
 <div class="admin-layout">
 
@@ -32,6 +66,12 @@
     </div>
 
     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Cambiar a modo noche"></button>
+
+    <div id="sessionBox" class="session-box">
+      <strong id="sessionUser">Usuario</strong>
+      <span id="sessionRole">Administrador</span>
+      <button id="btnLogout" type="button"><i class="fa-solid fa-right-from-bracket"></i> Salir</button>
+    </div>
 
     <button data-section="activos"><i class="fa-solid fa-gauge-high"></i> Servicios activos</button>
     <!--<button data-section="recogidas"><i class="fa-solid fa-calendar-check"></i> Recogidas</button>-->
@@ -106,6 +146,12 @@
           <h4>Crear trabajador</h4>
           <input id="trabNombre" placeholder="Nombre del trabajador">
           <input id="trabCorreo" type="email" placeholder="Correo del trabajador">
+          <select id="trabRol" class="glass-select">
+            <option value="">Sin acceso al sistema</option>
+            <option value="admin">Administrador</option>
+            <option value="jefe">Jefe</option>
+          </select>
+          <input id="trabPassword" type="password" placeholder="Contrase&ntilde;a si tendr&aacute; acceso">
           <button id="btnCrearTrabajador"><i class="fa-solid fa-user-plus"></i> Agregar trabajador</button>
         </div>
       </div>
@@ -119,10 +165,29 @@
         </div>
         <div class="history-actions">
           <input id="buscador" placeholder="Buscar por placa o trabajador">
+          <select id="filtroMetodoPago" class="glass-select">
+            <option value="">Todos los pagos</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="bre_b">Bre-B</option>
+            <option value="sin_registrar">Sin registrar</option>
+          </select>
           <button id="btnHistorialPlaca" class="history-open-button" type="button">
             <i class="fa-solid fa-clock-rotate-left"></i> Historial placa
           </button>
+          <button id="btnPendientesPago" class="history-open-button pay-pending-button" type="button">
+            <i class="fa-solid fa-hand-holding-dollar"></i> Pendientes por pagar
+          </button>
         </div>
+      </div>
+
+      <div class="filters-row income-filters">
+        <select id="filtroIngresosTrabajador" class="glass-select">
+          <option value="">Todos los trabajadores</option>
+        </select>
+        <select id="filtroIngresosServicio" class="glass-select">
+          <option value="">Todos los servicios</option>
+        </select>
       </div>
 
       <div class="kpis kpis-compact">
@@ -138,6 +203,10 @@
           <span id="kpiMes">$0</span>
           <small>Ingresos del mes</small>
         </div>
+        <div class="kpi kpi-profit">
+          <span id="kpiFiltrado">$0</span>
+          <small>Total filtrado</small>
+        </div>
       </div>
 
       <table class="tabla">
@@ -148,6 +217,7 @@
             <th>Servicio</th>
             <th>Trabajador</th>
             <th>Precio</th>
+            <th>Pago</th>
             <th>Tiempo</th>
           </tr>
         </thead>
@@ -289,7 +359,7 @@
       <i></i>
       <span></span>
     </div>
-    <div class="loader-text">Cargando...</div>
+    <div class="loader-text">Recuperando sesi&oacute;n...</div>
   </div>
 </div>
 
