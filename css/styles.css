@@ -154,6 +154,97 @@ button:disabled {
   display: none !important;
 }
 
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: var(--page-bg);
+}
+
+body.is-authenticated .auth-screen {
+  display: none;
+}
+
+html.auth-checking .auth-screen,
+html.auth-checking .admin-layout,
+body.auth-checking .auth-screen,
+body.auth-checking .admin-layout {
+  display: none;
+}
+
+body:not(.is-authenticated) .admin-layout,
+body:not(.is-authenticated) .loader {
+  display: none;
+}
+
+html.auth-checking .loader,
+html.auth-checking .loader.hidden,
+body.auth-checking .loader,
+body.auth-checking .loader.hidden {
+  display: flex;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+html.auth-checking body::after {
+  content: "Recuperando sesión...";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,.88);
+  background: rgba(7, 9, 13, .72);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  font-size: .9rem;
+  font-weight: 720;
+}
+
+.auth-card {
+  width: min(100%, 430px);
+  padding: 26px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+.auth-brand {
+  margin-bottom: 18px;
+}
+
+.auth-brand img {
+  width: 58px;
+  border-radius: 8px;
+}
+
+.auth-card button {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.auth-card .auth-secondary {
+  margin-top: 10px;
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.auth-note {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  font-size: .84rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 /* Dashboard layout */
 .admin-layout {
   position: relative;
@@ -274,6 +365,40 @@ button:disabled {
   pointer-events: none;
 }
 
+.session-box {
+  margin: 0 0 12px;
+  padding: 12px;
+  display: grid;
+  gap: 3px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.session-box strong {
+  color: var(--text);
+  font-size: .9rem;
+  overflow-wrap: anywhere;
+}
+
+.session-box span {
+  color: var(--text-muted);
+  font-size: .76rem;
+  text-transform: capitalize;
+}
+
+.session-box button {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  justify-content: center;
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
 .sidebar button:hover,
 .sidebar button:focus,
 .sidebar button.active {
@@ -368,7 +493,7 @@ button:disabled {
 }
 
 .history-actions {
-  width: min(100%, 560px);
+  width: min(100%, 760px);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -376,7 +501,7 @@ button:disabled {
 }
 
 .section-heading > .history-actions {
-  width: min(100%, 560px);
+  width: min(100%, 760px);
 }
 
 .history-actions input {
@@ -399,6 +524,14 @@ button:disabled {
   font-size: .9rem;
   font-weight: 720;
   white-space: nowrap;
+}
+
+.pay-pending-button {
+  background: linear-gradient(180deg, var(--warning), color-mix(in srgb, var(--warning) 78%, #000)) !important;
+}
+
+.income-filters {
+  margin-top: -8px;
 }
 
 .eyebrow {
@@ -747,8 +880,10 @@ button:disabled {
 .money-block strong {
   display: block;
   color: var(--text);
-  font-size: 1rem;
-  overflow-wrap: anywhere;
+  font-size: clamp(.82rem, 1.7vw, 1rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .money-block.expense strong {
@@ -1233,24 +1368,213 @@ button:active {
 
 #trabajadores .tabla {
   table-layout: fixed;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 38%),
+    var(--surface-strong);
+  border-color: var(--border-strong);
+}
+
+#trabajadores .tabla thead {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .07), transparent),
+    var(--surface-muted);
+}
+
+#trabajadores .tabla th,
+#trabajadores .tabla td {
+  padding: 18px 20px;
+}
+
+#trabajadores .tabla tbody tr {
+  background: transparent;
+}
+
+#trabajadores .tabla tbody tr:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    var(--surface-muted);
+}
+
+#trabajadores .tabla tbody tr.boss-row {
+  background:
+    linear-gradient(90deg, rgba(210, 166, 79, .12), transparent 54%),
+    transparent;
+}
+
+#trabajadores .tabla th:nth-child(1),
+#trabajadores .tabla td:nth-child(1) {
+  width: 31%;
+}
+
+#trabajadores .tabla th:nth-child(2),
+#trabajadores .tabla td:nth-child(2) {
+  width: 24%;
 }
 
 #trabajadores .tabla th:nth-child(3),
 #trabajadores .tabla td:nth-child(3) {
-  width: 42%;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  width: 27%;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 #trabajadores .tabla th:nth-child(4),
 #trabajadores .tabla td:nth-child(4) {
-  width: 26%;
+  width: 18%;
   text-align: center;
+}
+
+.worker-name-line,
+.worker-state-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+#trabajadores .worker-avatar {
+  display: none !important;
+}
+
+.worker-name-line strong,
+.worker-email {
+  display: block;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-chip,
+.worker-status,
+.access-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.role-chip,
+.access-chip,
+.worker-status {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: .72rem;
+  font-weight: 780;
+}
+
+.role-chip i {
+  margin: 0;
+  font-size: .72rem;
+}
+
+.role-chip.boss i {
+  color: #fff4bd;
+  filter:
+    drop-shadow(0 1px 0 rgba(85, 55, 0, .45))
+    drop-shadow(0 0 7px rgba(255, 216, 107, .78));
+}
+
+.role-chip.admin i {
+  color: #dce7f4;
+  filter: drop-shadow(0 0 6px rgba(220, 231, 244, .5));
+}
+
+.role-chip.neutral::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #7dd3fc;
+  box-shadow: 0 0 8px rgba(125, 211, 252, .45);
+}
+
+.role-chip.boss {
+  color: #2c1b00;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .42), transparent 44%),
+    linear-gradient(145deg, #ffe08a, #d39a21);
+  border: 1px solid #ffd86b;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    0 0 0 1px rgba(255, 216, 107, .18),
+    0 10px 24px rgba(210, 166, 79, .28);
+  font-weight: 860;
+}
+
+.role-chip.admin {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.role-chip.neutral {
+  color: var(--text-soft);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.worker-status {
+  font-weight: 820;
+  text-transform: capitalize;
+}
+
+.worker-status.free {
+  color: var(--success);
+  background: var(--success-soft);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.worker-status.busy {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
+}
+
+.access-chip {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.access-chip.on {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 25%, transparent);
+}
+
+.access-chip.off {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.access-chip.muted {
+  color: var(--text-muted);
 }
 
 .acciones-trabajador {
   justify-content: center;
   margin-top: 0;
+  flex-wrap: nowrap;
+}
+
+#trabajadores .acciones-trabajador button {
+  min-height: 38px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-weight: 760;
+}
+
+#trabajadores .acciones-trabajador .delete {
+  box-shadow: 0 10px 22px rgba(227, 93, 93, .18) !important;
 }
 
 /* Loader */
