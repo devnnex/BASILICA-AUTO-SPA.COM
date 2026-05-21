@@ -1,4 +1,278 @@
 /* ===============================
+   AUTENTICACION Y SESION DIARIA
+   =============================== */
+const AUTH_STORAGE_KEY = "basilica-session";
+let currentSession = null;
+let sessionExpiryTimer = null;
+
+function getStoredSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveSession(session) {
+  currentSession = session;
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  } catch (error) {
+    // La sesion sigue viva en memoria aunque el navegador bloquee localStorage.
+  }
+}
+
+function clearSession() {
+  currentSession = null;
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (error) {}
+}
+
+function getSessionToken() {
+  return currentSession?.token || getStoredSession()?.token || "";
+}
+
+function getTodayMidnightTimestamp() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function getSessionExpiry(session) {
+  return Math.min(Number(session?.expiresAt || 0), getTodayMidnightTimestamp());
+}
+
+function metodoPagoTexto(metodo) {
+  const labels = {
+    efectivo: "Efectivo",
+    transferencia: "Transferencia",
+    bre_b: "Bre-B",
+    sin_registrar: "Sin registrar"
+  };
+  return labels[metodo] || "Sin registrar";
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = function fetchConSesion(input, init) {
+  if (typeof input === "string" && typeof API_URL !== "undefined" && input.startsWith(API_URL)) {
+    const token = getSessionToken();
+    if (token && !input.includes("sessionToken=")) {
+      const glue = input.includes("?") ? "&" : "?";
+      input = `${input}${glue}sessionToken=${encodeURIComponent(token)}`;
+    }
+  }
+  return nativeFetch(input, init);
+};
+
+function scheduleSessionExpiry(session) {
+  clearTimeout(sessionExpiryTimer);
+  const expiresAt = getSessionExpiry(session);
+  const delay = expiresAt - Date.now();
+
+  if (delay <= 0) {
+    cerrarSesion({ silent: true, expired: true });
+    return;
+  }
+
+  sessionExpiryTimer = setTimeout(() => {
+    cerrarSesion({ silent: true, expired: true });
+  }, delay);
+}
+
+function setAuthenticatedUI(session) {
+  document.documentElement.classList.remove("auth-checking");
+  document.body.classList.remove("auth-checking");
+  document.body.classList.add("is-authenticated");
+  const user = document.getElementById("sessionUser");
+  const role = document.getElementById("sessionRole");
+  if (user) user.textContent = session?.nombre || session?.correo || "Usuario";
+  if (role) role.textContent = session?.rol || "admin";
+}
+
+function setLoggedOutUI() {
+  document.documentElement.classList.remove("auth-checking");
+  document.body.classList.remove("auth-checking");
+  document.body.classList.remove("is-authenticated");
+  document.getElementById("loginPassword")?.focus();
+}
+
+function cerrarSesion(options = {}) {
+  const token = getSessionToken();
+  if (token && !options.silent) {
+    fetch(`${API_URL}?action=logout&sessionToken=${encodeURIComponent(token)}`).catch(() => {});
+  }
+
+  clearTimeout(sessionExpiryTimer);
+  clearSession();
+  setLoggedOutUI();
+
+  if (options.expired) {
+    Swal.fire("Sesion finalizada", "Debes iniciar sesion nuevamente.", "info");
+  }
+}
+
+function normalizarSessionDesdeLogin(resp) {
+  return {
+    token: resp.token,
+    nombre: resp.nombre,
+    correo: resp.correo,
+    rol: resp.rol,
+    expiresAt: Number(resp.expiresAt || getTodayMidnightTimestamp())
+  };
+}
+
+function iniciarDashboardConSesion(session) {
+  saveSession(session);
+  setAuthenticatedUI(session);
+  scheduleSessionExpiry(session);
+  inicializarDashboard();
+}
+
+function configurarLogin() {
+  const form = document.getElementById("loginForm");
+  const btnLogout = document.getElementById("btnLogout");
+  const btnSetupJefe = document.getElementById("btnSetupJefe");
+
+  btnLogout?.addEventListener("click", () => cerrarSesion());
+  btnSetupJefe?.addEventListener("click", abrirSetupJefeInicial);
+  actualizarBotonSetupJefe();
+
+  form?.addEventListener("submit", event => {
+    event.preventDefault();
+
+    const correo = document.getElementById("loginCorreo").value.trim().toLowerCase();
+    const password = document.getElementById("loginPassword").value;
+    const btn = document.getElementById("btnLogin");
+
+    if (!correo || !password) return;
+    btn.disabled = true;
+
+    fetch(
+      `${API_URL}?action=login` +
+      `&correo=${encodeURIComponent(correo)}` +
+      `&password=${encodeURIComponent(password)}`
+    )
+      .then(res => res.json())
+      .then(resp => {
+        if (!resp.ok) {
+          Swal.fire("Acceso denegado", resp.error || "Credenciales incorrectas", "error");
+          return;
+        }
+
+        document.getElementById("loginPassword").value = "";
+        iniciarDashboardConSesion(normalizarSessionDesdeLogin(resp));
+      })
+      .catch(() => Swal.fire("Error", "No se pudo iniciar sesion.", "error"))
+      .finally(() => {
+        btn.disabled = false;
+      });
+  });
+}
+
+function actualizarBotonSetupJefe() {
+  const btnSetupJefe = document.getElementById("btnSetupJefe");
+  if (!btnSetupJefe) return;
+
+  btnSetupJefe.classList.add("hidden");
+  fetch(`${API_URL}?action=estadoSetup`)
+    .then(res => res.json())
+    .then(resp => {
+      btnSetupJefe.classList.toggle("hidden", Boolean(resp.tieneJefe));
+    })
+    .catch(() => {
+      btnSetupJefe.classList.add("hidden");
+    });
+}
+
+function abrirSetupJefeInicial() {
+  Swal.fire({
+    title: "Primer jefe",
+    html: `
+      <input id="setupNombre" class="swal2-input" placeholder="Nombre">
+      <input id="setupCorreo" type="email" class="swal2-input" placeholder="Correo">
+      <input id="setupPassword" type="password" class="swal2-input" placeholder="Contrasena">
+    `,
+    confirmButtonText: "Crear jefe",
+    showCancelButton: true,
+    preConfirm: () => {
+      const nombre = document.getElementById("setupNombre").value.trim();
+      const correo = document.getElementById("setupCorreo").value.trim().toLowerCase();
+      const password = document.getElementById("setupPassword").value;
+
+      if (!nombre || !correo || !password) {
+        Swal.showValidationMessage("Completa todos los campos");
+        return false;
+      }
+
+      if (!correo.includes("@")) {
+        Swal.showValidationMessage("Correo invalido");
+        return false;
+      }
+
+      return { nombre, correo, password };
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    const { nombre, correo, password } = result.value;
+    fetch(
+      `${API_URL}?action=setupJefeInicial` +
+      `&nombre=${encodeURIComponent(nombre)}` +
+      `&correo=${encodeURIComponent(correo)}` +
+      `&password=${encodeURIComponent(password)}`
+    )
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          Swal.fire("No se pudo crear", resp.error, "warning");
+          return;
+        }
+
+        document.getElementById("loginCorreo").value = correo;
+        Swal.fire("Jefe creado", "Ahora puedes iniciar sesion.", "success");
+      })
+      .catch(() => Swal.fire("Error", "No se pudo crear el jefe inicial.", "error"));
+  });
+}
+
+function validarSesionGuardada() {
+  const session = getStoredSession();
+  if (!session?.token || getSessionExpiry(session) <= Date.now()) {
+    clearSession();
+    setLoggedOutUI();
+    return Promise.resolve(false);
+  }
+
+  currentSession = session;
+  return fetch(`${API_URL}?action=validarSesion&sessionToken=${encodeURIComponent(session.token)}`)
+    .then(res => res.json())
+    .then(resp => {
+      if (!resp.ok) {
+        clearSession();
+        setLoggedOutUI();
+        return false;
+      }
+
+      iniciarDashboardConSesion({
+        token: session.token,
+        nombre: resp.user?.nombre || session.nombre,
+        correo: resp.user?.correo || session.correo,
+        rol: resp.user?.rol || session.rol,
+        expiresAt: Number(resp.user?.expira || session.expiresAt)
+      });
+      return true;
+    })
+    .catch(() => {
+      clearSession();
+      setLoggedOutUI();
+      return false;
+    });
+}
+
+/* ===============================
    TEMA CLARO / NOCHE
    =============================== */
 (function inicializarTemaGlobal() {
@@ -65,6 +339,7 @@ let trabajadoresData = [];
    LIQUIDACIONES (estado)
 =============================== */
 let liquidacionesData = {};
+let liquidacionesDetalle = [];
 
 
 //Variables globales de los graficos de ganancias/ingresos
@@ -89,6 +364,8 @@ const placaHistorialLista = document.getElementById("placaHistorialLista");
 
 const trabNombre = document.getElementById("trabNombre");
 const trabCorreo = document.getElementById("trabCorreo");
+const trabRol = document.getElementById("trabRol");
+const trabPassword = document.getElementById("trabPassword");
 const srvNombre = document.getElementById("srvNombre");
 const srvPrecio = document.getElementById("srvPrecio");
 
@@ -1258,20 +1535,6 @@ function cargarTrabajadores(options = {}) {
     .then(data => {
       trabajadoresData = Array.isArray(data) ? data : [];
 
-      // Construir mapa de liquidaciones usando id en lugar de nombre
-      const nuevasLiquidaciones = {};
-
-      trabajadoresData.forEach(t => {
-        if (t.liquidacion && t.fecha_liquidacion) {
-          nuevasLiquidaciones[t.id] = {
-            valor: Number(t.liquidacion),
-            fecha: new Date(t.fecha_liquidacion)
-          };
-        }
-      });
-
-      liquidacionesData = nuevasLiquidaciones;
-
       renderTrabajadores();        // tabla
       renderFiltroTrabajadores();  // select
    
@@ -1291,28 +1554,57 @@ function renderTrabajadores() {
   tbody.innerHTML = "";
 
   if (!trabajadoresData.length) {
-    tbody.innerHTML = `<tr><td colspan="3">Sin trabajadores</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4">Sin trabajadores</td></tr>`;
     return;
   }
 
   trabajadoresData.forEach(t => {
     const tr = document.createElement("tr");
+    const actorEsJefe = currentSession?.rol === "jefe";
+    const rol = String(t.rol || "").toLowerCase();
+    const isJefe = rol === "jefe";
+    const isAdmin = rol === "admin";
+    const estado = String(t.estado || "").toLowerCase();
+    const accesoInactivo = t.activo === "inactivo";
+    tr.className = isJefe ? "worker-row boss-row" : "worker-row";
 
     tr.innerHTML = `
-      <td>${t.nombre}</td>
-      <td>${t.estado}</td>
-      <td>${t.correo}</td>
+      <td>
+        <div class="worker-name-line">
+          <strong>${escapeHTML(t.nombre || "-")}</strong>
+          ${
+            isJefe
+              ? `<span class="role-chip boss"><i class="fa-solid fa-crown"></i> Jefe</span>`
+              : isAdmin
+                ? `<span class="role-chip admin"><i class="fa-solid fa-shield-halved"></i> Admin</span>`
+                : `<span class="role-chip neutral">Operativo</span>`
+          }
+        </div>
+      </td>
+      <td>
+        <div class="worker-state-line">
+          <span class="worker-status ${estado === "ocupado" ? "busy" : "free"}">${escapeHTML(t.estado || "-")}</span>
+          ${
+            t.rol
+              ? `<span class="access-chip ${accesoInactivo ? "off" : "on"}">${accesoInactivo ? "Acceso inactivo" : "Acceso activo"}</span>`
+              : `<span class="access-chip muted">Sin acceso</span>`
+          }
+        </div>
+      </td>
+      <td>
+        <span class="worker-email">${escapeHTML(t.correo || "-")}</span>
+      </td>
       <td>
   <div class="acciones-trabajador">
     <button class="edit">Editar</button>
-    <button class="delete">Eliminar</button>
+    <button class="delete" ${actorEsJefe ? "" : "disabled title=\"Solo el jefe puede eliminar usuarios\""}>Eliminar</button>
   </div>
 </td>
 
     `;
 
     tr.querySelector(".edit").onclick = () => editarTrabajador(t);
-    tr.querySelector(".delete").onclick = () => eliminarTrabajador(t);
+    if (actorEsJefe) tr.querySelector(".delete").onclick = () => eliminarTrabajador(t);
 
    
 
@@ -1326,6 +1618,12 @@ function renderTrabajadores() {
     EDITAR TRABAJADOR
    =============================== */
 function editarTrabajador(t) {
+  const actorEsJefe = currentSession?.rol === "jefe";
+  const actorEsAdmin = currentSession?.rol === "admin";
+  const esMismoUsuario = String(currentSession?.correo || "").toLowerCase() === String(t.correo || "").toLowerCase();
+  const camposEditables = actorEsJefe;
+  const passwordEditable = actorEsJefe || (actorEsAdmin && esMismoUsuario);
+
   SwalPremium.fire({
     title: "Editar trabajador",
     html: `
@@ -1334,6 +1632,7 @@ function editarTrabajador(t) {
         class="swal2-input"
         placeholder="Nombre"
         value="${t.nombre}"
+        ${camposEditables ? "" : "disabled"}
       >
 
       <input 
@@ -1342,19 +1641,63 @@ function editarTrabajador(t) {
         class="swal2-input"
         placeholder="Correo"
         value="${t.correo || ""}"
+        ${camposEditables ? "" : "disabled"}
       >
 
-      <select id="trabEstadoEdit" class="swal2-select">
+      <select id="trabEstadoEdit" class="swal2-select" ${camposEditables ? "" : "disabled"}>
         <option value="libre" ${t.estado === "libre" ? "selected" : ""}>Libre</option>
         <option value="ocupado" ${t.estado === "ocupado" ? "selected" : ""}>Ocupado</option>
       </select>
+
+      <select id="trabRolEdit" class="swal2-select" ${camposEditables ? "" : "disabled"}>
+        <option value="" ${!t.rol ? "selected" : ""}>Sin acceso al sistema</option>
+        <option value="admin" ${t.rol === "admin" ? "selected" : ""}>Administrador</option>
+        <option value="jefe" ${t.rol === "jefe" ? "selected" : ""}>Jefe</option>
+      </select>
+
+      <select id="trabActivoEdit" class="swal2-select" ${camposEditables ? "" : "disabled"}>
+        <option value="activo" ${t.activo !== "inactivo" ? "selected" : ""}>Acceso activo</option>
+        <option value="inactivo" ${t.activo === "inactivo" ? "selected" : ""}>Acceso inactivo</option>
+      </select>
+
+      <input
+        id="trabPasswordEdit"
+        type="password"
+        class="swal2-input"
+        placeholder="Nueva contrasena (opcional)"
+        ${passwordEditable ? "" : "disabled"}
+      >
+      ${
+        actorEsJefe
+          ? ""
+          : esMismoUsuario
+            ? `<p style="margin:10px 0 0;opacity:.72;font-size:.84rem;">Como administrador, solo puedes cambiar tu contrasena.</p>`
+            : `<p style="margin:10px 0 0;opacity:.72;font-size:.84rem;">Solo el jefe puede modificar otros usuarios.</p>`
+      }
     `,
-    confirmButtonText: "Guardar",
+    confirmButtonText: actorEsJefe ? "Guardar" : (esMismoUsuario ? "Cambiar contrasena" : "Cerrar"),
     showCancelButton: true,
     preConfirm: () => {
-      const nombre = document.getElementById("trabNombreEdit").value.trim();
-      const correo = document.getElementById("trabCorreoEdit").value.trim();
-      const estado = document.getElementById("trabEstadoEdit").value;
+      const nombre = camposEditables ? document.getElementById("trabNombreEdit").value.trim() : (t.nombre || "");
+      const correo = camposEditables ? document.getElementById("trabCorreoEdit").value.trim() : (t.correo || "");
+      const estado = camposEditables ? document.getElementById("trabEstadoEdit").value : (t.estado || "");
+      const rol = camposEditables ? document.getElementById("trabRolEdit").value : (t.rol || "");
+      const activo = camposEditables ? document.getElementById("trabActivoEdit").value : (t.activo || "activo");
+      const password = passwordEditable ? document.getElementById("trabPasswordEdit").value : "";
+
+      if (!actorEsJefe) {
+        if (!esMismoUsuario) {
+          Swal.showValidationMessage("Solo el jefe puede modificar otros usuarios");
+          return false;
+        }
+
+        if (!password) {
+          Swal.showValidationMessage("Ingresa tu nueva contrasena");
+          return false;
+        }
+
+        return { nombre, correo, estado, rol, activo, password };
+      }
 
       if (!nombre) {
         Swal.showValidationMessage("Nombre requerido");
@@ -1366,19 +1709,32 @@ function editarTrabajador(t) {
         return false;
       }
 
-      return { nombre, correo, estado };
+      if (rol && !correo) {
+        Swal.showValidationMessage("El correo es obligatorio para dar acceso");
+        return false;
+      }
+
+      if (rol && !t.tienePassword && !password) {
+        Swal.showValidationMessage("Ingresa una contrasena para activar el acceso");
+        return false;
+      }
+
+      return { nombre, correo, estado, rol, activo, password };
     }
   }).then(result => {
     if (!result.isConfirmed) return;
 
-    const { nombre, correo, estado } = result.value;
+    const { nombre, correo, estado, rol, activo, password } = result.value;
 
     fetch(
       `${API_URL}?action=editarTrabajador` +
       `&id=${t.id}` +
       `&nombre=${encodeURIComponent(nombre)}` +
       `&correo=${encodeURIComponent(correo)}` +
-      `&estado=${estado}`
+      `&estado=${estado}` +
+      `&rol=${encodeURIComponent(rol)}` +
+      `&activo=${encodeURIComponent(activo)}` +
+      `&password=${encodeURIComponent(password)}`
     )
       .then(res => res.json())
       .then(r => {
@@ -1387,6 +1743,8 @@ function editarTrabajador(t) {
           cargarTrabajadores();
           cargarIngresos();
           cargarActivos();
+        } else {
+          SwalPremium.fire("No permitido", r.error || "No se pudo actualizar", "warning");
         }
       });
   });
@@ -1452,18 +1810,40 @@ SwalPremium.fire({
         <span>Neto: <b>${formatCOP(ingreso - gastos)}</b></span>
         <span>Tiempo: <b>${tiempoActivo}</b></span>
       </div>
+      <select id="metodoPagoLavado" class="swal2-input">
+        <option value="">Selecciona metodo de pago</option>
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="bre_b">Bre-B</option>
+        <option value="pendiente">Pendiente por pagar</option>
+      </select>
     ` : "",
     icon: "question",
     showCancelButton: true,
-    confirmButtonText: "Confirmar"
+    confirmButtonText: "Confirmar",
+    preConfirm: () => {
+      const metodo = document.getElementById("metodoPagoLavado")?.value || "";
+      if (!metodo) {
+        Swal.showValidationMessage("Selecciona el metodo de pago");
+        return false;
+      }
+      return { metodo };
+    }
   }).then(r => {
     if (!r.isConfirmed) return;
 
     // ⚡ Optimistic UI
     item.style.opacity = ".4";
     showAppLoader("Confirmando lavado...");
+    const metodo = r.value.metodo;
+    const estadoPago = metodo === "pendiente" ? "pendiente" : "pagado";
 
-    fetch(`${API_URL}?action=confirmar&id=${id}`)
+    fetch(
+      `${API_URL}?action=confirmar` +
+      `&id=${encodeURIComponent(id)}` +
+      `&metodo_pago=${encodeURIComponent(metodo === "pendiente" ? "" : metodo)}` +
+      `&estado_pago=${encodeURIComponent(estadoPago)}`
+    )
       .then(res => res.json())
       .then(r => {
         if (r.ok) {
@@ -1474,6 +1854,7 @@ SwalPremium.fire({
           cargarActivos({ silent: true });
           cargarIngresos({ silent: true });
           cargarTrabajadores({ silent: true });
+          if (estadoPago === "pendiente") cargarPendientesPago({ silent: true });
 
         } else {
           item.style.opacity = "1";
@@ -1542,17 +1923,32 @@ document.getElementById("btnCrearServicio").onclick = () => {
 document.getElementById("btnCrearTrabajador").onclick = () => {
   const nombre = trabNombre.value.trim();
   const correo = trabCorreo.value.trim(); // nuevo
+  const rol = trabRol?.value || "";
+  const password = trabPassword?.value || "";
 
   if (!nombre) {
     SwalPremium.fire("Error", "Nombre requerido", "error");
     return;
   }
+
+  if (rol && (!correo || !password)) {
+    SwalPremium.fire("Error", "Para crear un administrador debes ingresar correo y contrasena.", "error");
+    return;
+  }
+
+  if (correo && !correo.includes("@")) {
+    SwalPremium.fire("Error", "Correo invalido", "error");
+    return;
+  }
+
   showAppLoader("Creando trabajador...");
 
   fetch(
     `${API_URL}?action=crearTrabajador` +
     `&nombre=${encodeURIComponent(nombre)}` +
-    `&correo=${encodeURIComponent(correo)}`
+    `&correo=${encodeURIComponent(correo)}` +
+    `&rol=${encodeURIComponent(rol)}` +
+    `&password=${encodeURIComponent(password)}`
   )
     .then(res => res.json())
     .then(r => {
@@ -1564,6 +1960,8 @@ document.getElementById("btnCrearTrabajador").onclick = () => {
       // Limpiar inputs
       trabNombre.value = "";
       trabCorreo.value = "";
+      if (trabRol) trabRol.value = "";
+      if (trabPassword) trabPassword.value = "";
 
       // 🔁 REFRESCAR TRABAJADORES
       cargarTrabajadores({ silent: true });
@@ -1613,10 +2011,16 @@ const tabla = document.getElementById("tablaIngresos");
 const kpiServicios = document.getElementById("kpiServicios");
 const kpiHoy = document.getElementById("kpiHoy");
 const kpiMes = document.getElementById("kpiMes");
+const kpiFiltrado = document.getElementById("kpiFiltrado");
 const buscador = document.getElementById("buscador");
 const btnHistorialPlaca = document.getElementById("btnHistorialPlaca");
+const btnPendientesPago = document.getElementById("btnPendientesPago");
+const filtroMetodoPago = document.getElementById("filtroMetodoPago");
+const filtroIngresosTrabajador = document.getElementById("filtroIngresosTrabajador");
+const filtroIngresosServicio = document.getElementById("filtroIngresosServicio");
 
 let ingresosDetalle = [];
+let pendientesPagoData = [];
 
 /* ---------- UTILIDADES ---------- */
 // Convierte cualquier cosa a número seguro
@@ -1705,45 +2109,200 @@ function cargarIngresos() {
 }
 
 /* ---------- RENDER TABLA INGRESOS ---------- */
+function getIngresosFiltrados() {
+  const q = buscador?.value.toLowerCase().trim() || "";
+  const metodo = filtroMetodoPago?.value || "";
+  const trabajador = filtroIngresosTrabajador?.value || "";
+  const servicio = filtroIngresosServicio?.value || "";
+
+  return ingresosDetalle.filter(i => {
+    const coincideBusqueda =
+      !q ||
+      (i.placa || "").toLowerCase().includes(q) ||
+      (i.trabajador || "").toLowerCase().includes(q) ||
+      (i.servicio || "").toLowerCase().includes(q);
+
+    return coincideBusqueda &&
+      (!metodo || (i.metodo_pago || "sin_registrar") === metodo) &&
+      (!trabajador || i.trabajador === trabajador) &&
+      (!servicio || i.servicio === servicio);
+  });
+}
+
+function renderFiltrosIngresos() {
+  const trabajadorActual = filtroIngresosTrabajador?.value || "";
+  const servicioActual = filtroIngresosServicio?.value || "";
+
+  if (filtroIngresosTrabajador) {
+    const trabajadores = [...new Set(ingresosDetalle.map(i => i.trabajador).filter(Boolean))].sort();
+    filtroIngresosTrabajador.innerHTML = `<option value="">Todos los trabajadores</option>`;
+    trabajadores.forEach(nombre => {
+      filtroIngresosTrabajador.innerHTML += `<option value="${escapeHTML(nombre)}">${escapeHTML(nombre)}</option>`;
+    });
+    if (trabajadores.includes(trabajadorActual)) filtroIngresosTrabajador.value = trabajadorActual;
+  }
+
+  if (filtroIngresosServicio) {
+    const servicios = [...new Set(ingresosDetalle.map(i => i.servicio).filter(Boolean))].sort();
+    filtroIngresosServicio.innerHTML = `<option value="">Todos los servicios</option>`;
+    servicios.forEach(nombre => {
+      filtroIngresosServicio.innerHTML += `<option value="${escapeHTML(nombre)}">${escapeHTML(nombre)}</option>`;
+    });
+    if (servicios.includes(servicioActual)) filtroIngresosServicio.value = servicioActual;
+  }
+}
+
 function renderTablaIngresos() {
   if (!tabla) return;
 
-  const q = buscador?.value.toLowerCase() || "";
   tabla.innerHTML = "";
-
-  const filtrados = ingresosDetalle.filter(i =>
-    (i.placa || "").toLowerCase().includes(q) ||
-    (i.trabajador || "").toLowerCase().includes(q)
-  );
+  const filtrados = getIngresosFiltrados();
+  const totalFiltrado = filtrados.reduce((acc, i) => acc + parsePrecio(i.precio), 0);
+  if (kpiFiltrado) kpiFiltrado.textContent = formatCOP(totalFiltrado);
 
   if (!filtrados.length) {
-    tabla.innerHTML = `<tr><td colspan="6" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
+    tabla.innerHTML = `<tr><td colspan="7" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
     return;
   }
 
   filtrados.forEach(i => {
     const fecha = i.fecha ? new Date(i.fecha).toLocaleDateString("es-CO") : "-";
-    const precio = i.precio != null
-      ? parsePrecio(i.precio).toLocaleString("es-CO", { style: "currency", currency: "COP" })
-      : "-";
+    const precio = i.precio != null ? formatCOP(parsePrecio(i.precio)) : "-";
 
     tabla.innerHTML += `
       <tr>
         <td>${fecha}</td>
-        <td>${i.placa || "-"}</td>
-        <td>${i.servicio || "-"}</td>
-        <td>${i.trabajador || "-"}</td>
+        <td>${escapeHTML(i.placa || "-")}</td>
+        <td>${escapeHTML(i.servicio || "-")}</td>
+        <td>${escapeHTML(i.trabajador || "-")}</td>
         <td>${precio}</td>
-        <td>${i.tiempo || "-"}</td>
+        <td>${metodoPagoTexto(i.metodo_pago || "sin_registrar")}</td>
+        <td>${escapeHTML(i.tiempo || "-")}</td>
       </tr>
     `;
   });
 }
 
+function cargarPendientesPago(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) showAppLoader("Cargando pendientes por pagar...");
+
+  return fetch(`${API_URL}?action=pendientesPago`)
+    .then(res => res.json())
+    .then(data => {
+      pendientesPagoData = Array.isArray(data) ? data : [];
+      return pendientesPagoData;
+    })
+    .catch(err => {
+      console.error("Error pendientes pago:", err);
+      pendientesPagoData = [];
+      return [];
+    })
+    .finally(() => {
+      if (!silent) hideAppLoader();
+    });
+}
+
+function renderPendientesPagoHTML() {
+  if (!pendientesPagoData.length) {
+    return `<div class="modal-history-empty">No hay servicios pendientes por pagar.</div>`;
+  }
+
+  return `
+    <div class="modal-history-list">
+      ${pendientesPagoData.map(p => `
+        <article>
+          <div>
+            <strong>${escapeHTML(p.placa || "-")}</strong>
+            <small>${escapeHTML(p.servicio || "-")} - ${escapeHTML(p.trabajador || "-")}</small>
+            <small>${p.fecha ? new Date(p.fecha).toLocaleString("es-CO") : "-"}</small>
+          </div>
+          <div>
+            <b>${formatCOP(p.precio)}</b>
+            <button type="button" class="pay-done" data-id="${escapeHTML(p.id)}">Pago efectuado</button>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function abrirModalPendientesPago() {
+  cargarPendientesPago().then(() => {
+    SwalPremium.fire({
+      title: "Pendientes por pagar",
+      html: `<div id="pendientesPagoModal">${renderPendientesPagoHTML()}</div>`,
+      confirmButtonText: "Cerrar",
+      didOpen: () => {
+        document.querySelectorAll(".pay-done").forEach(btn => {
+          btn.addEventListener("click", () => abrirModalPagoEfectuado(btn.dataset.id));
+        });
+      }
+    });
+  });
+}
+
+function abrirModalPagoEfectuado(id) {
+  const pendiente = pendientesPagoData.find(p => String(p.id) === String(id));
+
+  SwalPremium.fire({
+    title: pendiente ? `Pago de ${pendiente.placa}` : "Pago efectuado",
+    html: `
+      <select id="metodoPagoPendiente" class="swal2-input">
+        <option value="">Selecciona metodo de pago</option>
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="bre_b">Bre-B</option>
+      </select>
+    `,
+    confirmButtonText: "Registrar pago",
+    showCancelButton: true,
+    preConfirm: () => {
+      const metodo = document.getElementById("metodoPagoPendiente")?.value || "";
+      if (!metodo) {
+        Swal.showValidationMessage("Selecciona el metodo de pago");
+        return false;
+      }
+      return { metodo };
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Registrando pago...");
+    fetch(
+      `${API_URL}?action=marcarPagoEfectuado` +
+      `&id=${encodeURIComponent(id)}` +
+      `&metodo_pago=${encodeURIComponent(result.value.metodo)}`
+    )
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("Error", resp.error, "error");
+          return;
+        }
+
+        return Promise.all([
+          cargarPendientesPago({ silent: true }),
+          cargarIngresos({ silent: true })
+        ]).then(() => {
+          SwalPremium.fire("Pago registrado", "", "success");
+        });
+      })
+      .catch(() => SwalPremium.fire("Error", "No se pudo registrar el pago.", "error"))
+      .finally(() => hideAppLoader());
+  });
+}
+
 /* ---------- EVENTO FILTRO BUSCADOR ---------- */
 if (buscador) buscador.oninput = renderTablaIngresos;
+if (filtroMetodoPago) filtroMetodoPago.onchange = renderTablaIngresos;
+if (filtroIngresosTrabajador) filtroIngresosTrabajador.onchange = renderTablaIngresos;
+if (filtroIngresosServicio) filtroIngresosServicio.onchange = renderTablaIngresos;
 if (btnHistorialPlaca) {
   btnHistorialPlaca.addEventListener("click", () => abrirModalHistorialPlaca());
+}
+if (btnPendientesPago) {
+  btnPendientesPago.addEventListener("click", () => abrirModalPendientesPago());
 }
 
 /* ---------- LLAMADA INICIAL ---------- */
@@ -2019,6 +2578,8 @@ function renderCardsTrabajador() {
     return;
   }
 
+  let cardsRenderizadas = 0;
+
   // Renderizar trabajadores
   trabajadoresAFiltrar.forEach(trabajador => {
     const liquidacion = liquidacionesData[trabajador.id] || null;
@@ -2117,7 +2678,13 @@ function renderCardsTrabajador() {
     };
 
     cardsTrabajador.appendChild(card);
+    cardsRenderizadas++;
   });
+
+  if (!cardsRenderizadas) {
+    cardsTrabajador.innerHTML =
+      `<p style="opacity:.6">Sin trabajadores para mostrar.</p>`;
+  }
 }
 
 
@@ -2162,9 +2729,13 @@ if (filtroTrabajador) {
   ABRIR EL MODAL DE LIQUIDACION
 =============================== */
 function abrirModalLiquidacion(resumenTrabajador) {
-
-  if (!liquidacionesData[resumenTrabajador.id]) {
-    liquidacionesData[resumenTrabajador.id] = {};
+  if (Number(resumenTrabajador.total || 0) <= 0) {
+    SwalPremium.fire(
+      "Sin saldo por liquidar",
+      "Este trabajador no tiene servicios realizados pendientes por liquidar.",
+      "info"
+    );
+    return;
   }
 
   let liquidacion = { ...liquidacionesData[resumenTrabajador.id] };
@@ -2259,78 +2830,41 @@ function abrirModalLiquidacion(resumenTrabajador) {
         .then(resp => {
           if (resp?.error) throw new Error(resp.error);
           return Promise.all([
+            cargarLiquidaciones({ silent: true }),
             cargarTrabajadores({ silent: true }),
             cargarIngresos({ silent: true })
           ]);
         })
+        .then(() => {
+          if (resumenTrabajador.correo) {
+            const emailData = {
+              email: resumenTrabajador.correo,
+              trabajador_nombre: resumenTrabajador.trabajador,
+              total: valorLiquidado.toLocaleString("es-CO"),
+              servicios: resumenTrabajador.servicios,
+              ultima_liquidacion_titulo: "Liquidacion realizada",
+              ultima_liquidacion_valor: "$" + valorLiquidado.toLocaleString("es-CO"),
+              ultima_liquidacion_fecha: formatoFechaBonita(hoy),
+              ultima_liquidacion_periodo: frecuenciaTexto(diasAlarma),
+              anio: hoy.getFullYear()
+            };
+
+            emailjs.send("service_v2h7x1n", "template_lqgfiaq", emailData);
+          }
+
+          SwalPremium.fire(
+            "Liquidado",
+            `Liquidacion ${frecuenciaTexto(diasAlarma)} registrada correctamente.`,
+            "success"
+          );
+        })
         .catch(err => {
           console.error(err);
-          SwalPremium.fire("Error", "No se pudo refrescar la liquidacion.", "error");
+          SwalPremium.fire("Error", "No se pudo registrar la liquidacion.", "error");
         })
         .finally(() => {
           hideAppLoader();
         });
-
-      // EmailJS plano
-      if (resumenTrabajador.correo) {
-
-        const ultimaDetalle = liquidacion.fecha
-          ? `Anterior: $${liquidacion.valor.toLocaleString("es-CO")} - ${formatoFechaBonita(liquidacion.fecha)}`
-          : "Primera liquidacion registrada";
-
-const hoy = new Date();
-
-const emailData = {
-  email: resumenTrabajador.correo,
-
-  trabajador_nombre: resumenTrabajador.trabajador,
-
-  // Lo que realmente se le pago
-  total: valorLiquidado.toLocaleString("es-CO"),
-
-  // Servicios liquidados en este periodo
-  servicios: resumenTrabajador.servicios,
-
-  // Titulo
-  ultima_liquidacion_titulo: "Liquidacion realizada",
-
-  // Valor
-  ultima_liquidacion_valor:
-    "$" + valorLiquidado.toLocaleString("es-CO"),
-
-  // Fecha bonita
-  ultima_liquidacion_fecha: formatoFechaBonita(hoy),
-
-  // Periodo (15 dias, mensual, etc.)
-  ultima_liquidacion_periodo: frecuenciaTexto(diasAlarma),
-
-  anio: hoy.getFullYear()
-};
-
-
-
-        emailjs.send(
-          "service_v2h7x1n",
-          "template_lqgfiaq",
-          emailData
-        );
-      }
-
-      liquidacionesData[resumenTrabajador.id] = {
-        valor: valorLiquidado,
-        fecha: hoy,
-        porcentaje,
-        periodo: diasAlarma
-      };
-
-      renderCardsTrabajador();
-      renderLiquidaciones();
-
-      SwalPremium.fire(
-        "Liquidado",
-        `Liquidacion ${frecuenciaTexto(diasAlarma)} registrada correctamente.`,
-        "success"
-      );
 
     } catch (err) {
       console.error(err);
@@ -2361,6 +2895,44 @@ function guardarLiquidacion(trabajador, valor) {
     `&trabajador=${encodeURIComponent(trabajador)}` +
     `&valor=${valor}`
   ).then(res => res.json());
+}
+
+function cargarLiquidaciones(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) setSectionLoading("liquidaciones", true, "Cargando liquidaciones reales...");
+
+  return fetch(`${API_URL}?action=liquidaciones`)
+    .then(res => res.json())
+    .then(data => {
+      liquidacionesDetalle = Array.isArray(data.detalle) ? data.detalle : [];
+      liquidacionesData = {};
+
+      Object.entries(data.resumen || {}).forEach(([id, liquidacion]) => {
+        const fecha = toDateSafe(liquidacion.fecha);
+        if (!fecha) return;
+
+        liquidacionesData[id] = {
+          valor: Number(liquidacion.valor) || 0,
+          fecha,
+          trabajador: liquidacion.trabajador || ""
+        };
+      });
+
+      renderCardsTrabajador();
+      renderLiquidaciones();
+      return liquidacionesData;
+    })
+    .catch(err => {
+      console.error("Error liquidaciones:", err);
+      liquidacionesDetalle = [];
+      liquidacionesData = {};
+      renderCardsTrabajador();
+      renderLiquidaciones();
+      return {};
+    })
+    .finally(() => {
+      if (!silent) setSectionLoading("liquidaciones", false);
+    });
 }
 
 
@@ -2431,7 +3003,7 @@ function renderLiquidaciones() {
       .reduce((acc, i) => acc + Number(i.precio), 0);
 
     // Valor liquidado en COP
-    const valorFormateado = liquidacion && liquidacion.valor != null ? `$${liquidacion.valor.toLocaleString('es-CO')}` : "-";
+    const valorFormateado = liquidacion && liquidacion.valor != null ? formatCOP(liquidacion.valor) : "-";
 
     // Fecha bonita
     const fechaFormateada = liquidacion && liquidacion.fecha ? formatoFechaBonita(liquidacion.fecha) : "-";
@@ -2446,7 +3018,7 @@ function renderLiquidaciones() {
       <tr>
         <td>${t.nombre}</td>
         <td>${t.estado}</td>
-        <td>$${ingresosTrabajador.toLocaleString('es-CO')}</td>
+        <td>${formatCOP(ingresosTrabajador)}</td>
         <td>${valorFormateado} (${porcentajeReal !== "-" ? porcentajeReal + "%" : "-"})</td>
         <td>${fechaFormateada}</td>
       </tr>
@@ -2497,18 +3069,6 @@ function cargarTrabajadores(options = {}) {
     .then(data => {
       trabajadoresData = Array.isArray(data) ? data : [];
 
-      // Construir liquidaciones correctamente
-      liquidacionesData = {};
-      trabajadoresData.forEach(t => {
-        if (t.liquidacion != null && t.fecha_liquidacion) {
-          liquidacionesData[t.id] = {
-            valor: Number(t.liquidacion),
-            fecha: parseFechaSegura(t.fecha_liquidacion),
-            porcentaje: t.porcentaje || null
-          };
-        }
-      });
-
       renderTrabajadores();
       renderFiltroTrabajadores();
       renderFiltroLiquidaciones();
@@ -2538,6 +3098,7 @@ function cargarIngresos(options = {}) {
       if (placaHistorialInput?.value) {
         renderHistorialPlaca(placaHistorialInput.value, getHistorialLocalPlaca(placaHistorialInput.value));
       }
+      renderFiltrosIngresos();
       renderResumenIngresos();
       renderTablaIngresos();
       renderActivos();
@@ -2548,7 +3109,7 @@ function cargarIngresos(options = {}) {
     .catch(err => {
       console.error("Error cargando ingresos:", err);
       if (tabla) {
-        tabla.innerHTML = `<tr><td colspan="6" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
+        tabla.innerHTML = `<tr><td colspan="7" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
       }
     })
     .finally(() => {
@@ -2889,18 +3450,42 @@ function generarChartTopServicios(detalle) {
 /* ===============================
    INIT
    =============================== */
-renderHistorialPlaca("");
-renderCardsTrabajador();
-Promise.all([
-  cargarActivos(),
-  cargarIngresos(),
-  cargarServicios(),
-  cargarTrabajadores(),
-  cargarRecogidas()
-]).catch(console.error);
-setInterval(() => cargarActivos({ silent: true }), 10000);
-setInterval(() => cargarRecogidas({ silent: true }), 10000);
-setInterval(updateElapsedTimers, 1000);
+let dashboardInicializado = false;
+
+function inicializarDashboard() {
+  if (dashboardInicializado) {
+    Promise.all([
+      cargarActivos({ silent: true }),
+      cargarIngresos({ silent: true }),
+      cargarServicios({ silent: true }),
+      cargarTrabajadores({ silent: true }),
+      cargarLiquidaciones({ silent: true }),
+      cargarRecogidas({ silent: true }),
+      cargarPendientesPago({ silent: true })
+    ]).catch(console.error);
+    return;
+  }
+  dashboardInicializado = true;
+
+  renderHistorialPlaca("");
+  renderCardsTrabajador();
+  Promise.all([
+    cargarActivos(),
+    cargarIngresos(),
+    cargarServicios(),
+    cargarTrabajadores(),
+    cargarLiquidaciones({ silent: true }),
+    cargarRecogidas(),
+    cargarPendientesPago({ silent: true })
+  ]).catch(console.error);
+
+  setInterval(() => cargarActivos({ silent: true }), 10000);
+  setInterval(() => cargarRecogidas({ silent: true }), 10000);
+  setInterval(updateElapsedTimers, 1000);
+}
+
+configurarLogin();
+validarSesionGuardada();
 
 
 
