@@ -50,6 +50,7 @@ function metodoPagoTexto(metodo) {
     efectivo: "Efectivo",
     transferencia: "Transferencia",
     bre_b: "Bre-B",
+    mixto: "Mixto",
     sin_registrar: "Sin registrar"
   };
   return labels[metodo] || "Sin registrar";
@@ -373,6 +374,8 @@ let activosData = [];
 const gastosPorLavado = new Map();
 const gastosCargados = new Set();
 const gastosCargando = new Set();
+const ingresosPageSize = 12;
+let ingresosPaginaActual = 1;
 
 const kpiActivos = document.getElementById("kpiActivos");
 const kpiActivosIngresos = document.getElementById("kpiActivosIngresos");
@@ -489,6 +492,24 @@ function totalGastosLavado(id) {
     (acc, gasto) => acc + parsePrecio(gasto.costo),
     0
   );
+}
+
+function getAdicionalesLavado(lavado) {
+  return Array.isArray(lavado?.adicionales) ? lavado.adicionales : [];
+}
+
+function renderAdicionalesLavado(lavado) {
+  const adicionales = getAdicionalesLavado(lavado);
+  if (!adicionales.length) {
+    return `<div class="expense-row empty">Sin adicionales registrados para este lavado.</div>`;
+  }
+
+  return adicionales.map(adicional => `
+    <div class="expense-row">
+      <span>${escapeHTML(adicional.nombre || "Adicional")}</span>
+      <b>${formatCOP(adicional.precio)}</b>
+    </div>
+  `).join("");
 }
 
 function renderResumenActivos() {
@@ -608,7 +629,7 @@ function renderActivos() {
 
           <div class="active-card-meta">
             <span><i class="fa-solid fa-spray-can-sparkles"></i> ${escapeHTML(l.servicio || "-")}</span>
-            <span><i class="fa-solid fa-user"></i> ${escapeHTML(l.trabajador || "-")}</span>
+            <button class="worker-reassign" type="button"><i class="fa-solid fa-user"></i> ${escapeHTML(l.trabajador || "-")}</button>
           </div>
 
           ${crearTimerHTML(startTimestamp)}
@@ -629,6 +650,7 @@ function renderActivos() {
           </div>
 
           <div class="expense-preview">
+            ${renderAdicionalesLavado(l)}
             ${
               cargandoGastos
                 ? `<div class="expense-row empty">Cargando gastos...</div>`
@@ -639,6 +661,7 @@ function renderActivos() {
           </div>
 
           <div class="acciones">
+            <button class="add-extra"><i class="fa-solid fa-circle-plus"></i> Adicional</button>
             <button class="add-expense"><i class="fa-solid fa-plus"></i> Gasto</button>
             <button class="ghost detail"><i class="fa-solid fa-list-check"></i> Ver gastos</button>
             <button class="print"><i class="fa-solid fa-print"></i> Recibo</button>
@@ -648,6 +671,8 @@ function renderActivos() {
       `;
 
       item.querySelector(".add-expense").onclick = () => abrirModalGasto(l);
+      item.querySelector(".add-extra").onclick = () => abrirModalAdicional(l);
+      item.querySelector(".worker-reassign").onclick = () => abrirModalReasignarTrabajador(l);
       item.querySelector(".detail").onclick = () => abrirDetalleGastos(l);
       item.querySelector(".print").onclick = () => imprimirRecibo(l);
       item.querySelector(".confirm").onclick = () => confirmarLavado(l.id);
@@ -766,6 +791,127 @@ function abrirDetalleGastos(lavado) {
       `,
       confirmButtonText: "Cerrar"
     });
+  });
+}
+
+function abrirModalAdicional(lavado) {
+  SwalPremium.fire({
+    title: `Adicional para ${lavado.placa}`,
+    html: `
+      <div class="swal-form-grid">
+        <input id="adicionalNombre" class="swal2-input" placeholder="Nombre del adicional">
+        <input id="adicionalPrecio" class="swal2-input" type="number" min="0" step="100" placeholder="Valor adicional">
+      </div>
+    `,
+    confirmButtonText: "Agregar adicional",
+    cancelButtonText: "Cancelar",
+    showCancelButton: true,
+    preConfirm: () => {
+      const nombre = document.getElementById("adicionalNombre").value.trim();
+      const precio = Number(document.getElementById("adicionalPrecio").value || 0);
+
+      if (!nombre) {
+        Swal.showValidationMessage("El nombre del adicional es obligatorio");
+        return false;
+      }
+
+      if (precio <= 0) {
+        Swal.showValidationMessage("El valor debe ser mayor a cero");
+        return false;
+      }
+
+      return { nombre, precio };
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    const { nombre, precio } = result.value;
+    showAppLoader("Agregando adicional...");
+
+    fetch(
+      `${API_URL}?action=agregarAdicionalLavado` +
+      `&id=${encodeURIComponent(lavado.id)}` +
+      `&nombre=${encodeURIComponent(nombre)}` +
+      `&precio=${encodeURIComponent(precio)}`
+    )
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("Error", resp.error, "error");
+          return;
+        }
+
+        return cargarActivos({ silent: true }).then(() => {
+          SwalPremium.fire({
+            icon: "success",
+            title: "Adicional agregado",
+            timer: 1200,
+            showConfirmButton: false
+          });
+        });
+      })
+      .catch(() => SwalPremium.fire("Error", "No se pudo agregar el adicional", "error"))
+      .finally(() => hideAppLoader());
+  });
+}
+
+function abrirModalReasignarTrabajador(lavado) {
+  const libres = trabajadoresData.filter(t => t.estado === "libre" && t.nombre !== lavado.trabajador);
+
+  if (!libres.length) {
+    SwalPremium.fire("Sin disponibilidad", "No hay trabajadores libres para reasignar.", "info");
+    return;
+  }
+
+  SwalPremium.fire({
+    title: `Reasignar ${lavado.placa}`,
+    html: `
+      <select id="nuevoTrabajadorLavado" class="swal2-input">
+        <option value="">Selecciona trabajador libre</option>
+        ${libres.map(t => `<option value="${escapeHTML(t.nombre)}">${escapeHTML(t.nombre)}</option>`).join("")}
+      </select>
+    `,
+    confirmButtonText: "Reasignar",
+    cancelButtonText: "Cancelar",
+    showCancelButton: true,
+    preConfirm: () => {
+      const trabajador = document.getElementById("nuevoTrabajadorLavado").value;
+      if (!trabajador) {
+        Swal.showValidationMessage("Selecciona un trabajador");
+        return false;
+      }
+      return { trabajador };
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Reasignando trabajador...");
+    fetch(
+      `${API_URL}?action=reasignarTrabajador` +
+      `&id=${encodeURIComponent(lavado.id)}` +
+      `&trabajador=${encodeURIComponent(result.value.trabajador)}`
+    )
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("Error", resp.error, "error");
+          return;
+        }
+
+        return Promise.all([
+          cargarActivos({ silent: true }),
+          cargarTrabajadores({ silent: true })
+        ]).then(() => {
+          SwalPremium.fire({
+            icon: "success",
+            title: "Trabajador reasignado",
+            timer: 1200,
+            showConfirmButton: false
+          });
+        });
+      })
+      .catch(() => SwalPremium.fire("Error", "No se pudo reasignar el trabajador", "error"))
+      .finally(() => hideAppLoader());
   });
 }
 
@@ -1783,6 +1929,107 @@ function eliminarTrabajador(trabajador) {
 }
 
 
+function getPaymentPayloadFromValues(metodo, total, prefijo = "") {
+  if (metodo === "pendiente") {
+    return { estadoPago: "pendiente", query: `&metodo_pago=&estado_pago=pendiente` };
+  }
+
+  if (metodo !== "mixto") {
+    return {
+      estadoPago: "pagado",
+      query:
+        `&metodo_pago=${encodeURIComponent(metodo)}` +
+        `&estado_pago=pagado`
+    };
+  }
+
+  const pago1Metodo = document.getElementById(`${prefijo}Pago1Metodo`)?.value || "";
+  const pago2Metodo = document.getElementById(`${prefijo}Pago2Metodo`)?.value || "";
+  const pago1Monto = Number(document.getElementById(`${prefijo}Pago1Monto`)?.value || 0);
+  const pago2Monto = Number(document.getElementById(`${prefijo}Pago2Monto`)?.value || 0);
+
+  if (!pago1Metodo || !pago2Metodo) {
+    Swal.showValidationMessage("Selecciona los dos metodos del pago mixto");
+    return null;
+  }
+
+  if (pago1Metodo === pago2Metodo) {
+    Swal.showValidationMessage("Usa dos metodos diferentes para pago mixto");
+    return null;
+  }
+
+  if (pago1Monto <= 0 || pago2Monto <= 0) {
+    Swal.showValidationMessage("Ambos montos deben ser mayores a cero");
+    return null;
+  }
+
+  if (Math.abs((pago1Monto + pago2Monto) - total) > 1) {
+    Swal.showValidationMessage(`La suma debe ser ${formatCOP(total)}`);
+    return null;
+  }
+
+  return {
+    estadoPago: "pagado",
+    query:
+      `&metodo_pago=mixto` +
+      `&estado_pago=pagado` +
+      `&pago1_metodo=${encodeURIComponent(pago1Metodo)}` +
+      `&pago1_monto=${encodeURIComponent(pago1Monto)}` +
+      `&pago2_metodo=${encodeURIComponent(pago2Metodo)}` +
+      `&pago2_monto=${encodeURIComponent(pago2Monto)}`
+  };
+}
+
+function renderPagoMixtoForm(total, prefijo = "") {
+  return `
+    <div id="${prefijo}PagoMixtoBox" class="mixed-payment-box hidden">
+      <div>
+        <label>Metodo de pago 1</label>
+        <select id="${prefijo}Pago1Metodo" class="swal2-input">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="bre_b">Bre-B</option>
+        </select>
+      </div>
+      <div>
+        <label>Monto</label>
+        <input id="${prefijo}Pago1Monto" class="swal2-input" type="number" min="0" step="100" value="${total}">
+      </div>
+      <div>
+        <label>Metodo de pago 2</label>
+        <select id="${prefijo}Pago2Metodo" class="swal2-input">
+          <option value="transferencia">Transferencia</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="bre_b">Bre-B</option>
+        </select>
+      </div>
+      <div>
+        <label>Monto</label>
+        <input id="${prefijo}Pago2Monto" class="swal2-input" type="number" min="0" step="100" value="0">
+      </div>
+      <small class="mixed-payment-total">Total a pagar: <b>${formatCOP(total)}</b></small>
+    </div>
+  `;
+}
+
+function bindPagoMixtoUI(total, prefijo = "") {
+  const metodoSelect = document.getElementById(`${prefijo}MetodoPago`);
+  const box = document.getElementById(`${prefijo}PagoMixtoBox`);
+  const pago1Monto = document.getElementById(`${prefijo}Pago1Monto`);
+  const pago2Monto = document.getElementById(`${prefijo}Pago2Monto`);
+
+  if (!metodoSelect || !box) return;
+
+  metodoSelect.addEventListener("change", () => {
+    box.classList.toggle("hidden", metodoSelect.value !== "mixto");
+  });
+
+  pago1Monto?.addEventListener("input", () => {
+    const restante = Math.max(0, total - Number(pago1Monto.value || 0));
+    if (pago2Monto) pago2Monto.value = restante;
+  });
+}
+
 
 
 
@@ -1810,24 +2057,28 @@ SwalPremium.fire({
         <span>Neto: <b>${formatCOP(ingreso - gastos)}</b></span>
         <span>Tiempo: <b>${tiempoActivo}</b></span>
       </div>
-      <select id="metodoPagoLavado" class="swal2-input">
+      <select id="confirmMetodoPago" class="swal2-input">
         <option value="">Selecciona metodo de pago</option>
         <option value="efectivo">Efectivo</option>
         <option value="transferencia">Transferencia</option>
         <option value="bre_b">Bre-B</option>
+        <option value="mixto">Pago mixto</option>
         <option value="pendiente">Pendiente por pagar</option>
       </select>
+      ${renderPagoMixtoForm(ingreso, "confirm")}
     ` : "",
     icon: "question",
     showCancelButton: true,
     confirmButtonText: "Confirmar",
+    didOpen: () => bindPagoMixtoUI(ingreso, "confirm"),
     preConfirm: () => {
-      const metodo = document.getElementById("metodoPagoLavado")?.value || "";
+      const metodo = document.getElementById("confirmMetodoPago")?.value || "";
       if (!metodo) {
         Swal.showValidationMessage("Selecciona el metodo de pago");
         return false;
       }
-      return { metodo };
+      const payload = getPaymentPayloadFromValues(metodo, ingreso, "confirm");
+      return payload || false;
     }
   }).then(r => {
     if (!r.isConfirmed) return;
@@ -1835,14 +2086,12 @@ SwalPremium.fire({
     // ⚡ Optimistic UI
     item.style.opacity = ".4";
     showAppLoader("Confirmando lavado...");
-    const metodo = r.value.metodo;
-    const estadoPago = metodo === "pendiente" ? "pendiente" : "pagado";
+    const estadoPago = r.value.estadoPago;
 
     fetch(
       `${API_URL}?action=confirmar` +
       `&id=${encodeURIComponent(id)}` +
-      `&metodo_pago=${encodeURIComponent(metodo === "pendiente" ? "" : metodo)}` +
-      `&estado_pago=${encodeURIComponent(estadoPago)}`
+      r.value.query
     )
       .then(res => res.json())
       .then(r => {
@@ -2018,6 +2267,8 @@ const btnPendientesPago = document.getElementById("btnPendientesPago");
 const filtroMetodoPago = document.getElementById("filtroMetodoPago");
 const filtroIngresosTrabajador = document.getElementById("filtroIngresosTrabajador");
 const filtroIngresosServicio = document.getElementById("filtroIngresosServicio");
+const filtroIngresosFecha = document.getElementById("filtroIngresosFecha");
+const paginacionIngresos = document.getElementById("paginacionIngresos");
 
 let ingresosDetalle = [];
 let pendientesPagoData = [];
@@ -2114,8 +2365,17 @@ function getIngresosFiltrados() {
   const metodo = filtroMetodoPago?.value || "";
   const trabajador = filtroIngresosTrabajador?.value || "";
   const servicio = filtroIngresosServicio?.value || "";
+  const fechaFiltro = filtroIngresosFecha?.value || "hoy";
 
   return ingresosDetalle.filter(i => {
+    const fecha = toDateSafe(i.fecha);
+    const metodoIngreso = i.metodo_pago || "sin_registrar";
+    const pagos = Array.isArray(i.pagos) ? i.pagos : [];
+    const coincideMetodo =
+      !metodo ||
+      metodoIngreso === metodo ||
+      pagos.some(pago => pago.metodo === metodo);
+
     const coincideBusqueda =
       !q ||
       (i.placa || "").toLowerCase().includes(q) ||
@@ -2123,10 +2383,68 @@ function getIngresosFiltrados() {
       (i.servicio || "").toLowerCase().includes(q);
 
     return coincideBusqueda &&
-      (!metodo || (i.metodo_pago || "sin_registrar") === metodo) &&
+      coincideMetodo &&
       (!trabajador || i.trabajador === trabajador) &&
-      (!servicio || i.servicio === servicio);
+      (!servicio || i.servicio === servicio) &&
+      coincideFiltroFecha(fecha, fechaFiltro);
+  }).sort((a, b) => {
+    const fechaA = Number(toTimestamp(a.fecha) || 0);
+    const fechaB = Number(toTimestamp(b.fecha) || 0);
+    if (fechaA !== fechaB) return fechaB - fechaA;
+    return Number(b.id || 0) - Number(a.id || 0);
   });
+}
+
+function getMontoIngresoParaFiltro(i) {
+  const metodo = filtroMetodoPago?.value || "";
+  const precio = parsePrecio(i.precio);
+  if (!metodo) return precio;
+
+  const pagos = Array.isArray(i.pagos) ? i.pagos : [];
+  const montoPorMetodo = pagos
+    .filter(pago => pago.metodo === metodo)
+    .reduce((acc, pago) => acc + parsePrecio(pago.monto), 0);
+
+  if (montoPorMetodo > 0) return montoPorMetodo;
+  return (i.metodo_pago || "sin_registrar") === metodo ? precio : 0;
+}
+
+function coincideFiltroFecha(fecha, filtro) {
+  if (!fecha) return false;
+  const hoy = new Date();
+  const d = new Date(fecha);
+  if (filtro === "todos") return true;
+  if (filtro === "hoy") return esMismoDia(d, hoy);
+  if (filtro === "ayer") {
+    const ayer = new Date();
+    ayer.setDate(hoy.getDate() - 1);
+    return esMismoDia(d, ayer);
+  }
+
+  const dias = Number(filtro);
+  if (!dias) return true;
+  const limite = new Date();
+  limite.setDate(hoy.getDate() - dias);
+  return d >= limite;
+}
+
+function renderPagoIngreso(i) {
+  const pagos = Array.isArray(i.pagos) ? i.pagos.filter(p => p.metodo && Number(p.monto || 0) > 0) : [];
+
+  if ((i.metodo_pago || "") === "mixto" && pagos.length) {
+    return `
+      <div class="payment-split">
+        ${pagos.map(pago => `
+          <span>
+            <b>${metodoPagoTexto(pago.metodo)}</b>
+            <small>${formatCOP(pago.monto)}</small>
+          </span>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  return `<span class="payment-pill ${escapeHTML(i.metodo_pago || "sin_registrar")}">${metodoPagoTexto(i.metodo_pago || "sin_registrar")}</span>`;
 }
 
 function renderFiltrosIngresos() {
@@ -2157,15 +2475,20 @@ function renderTablaIngresos() {
 
   tabla.innerHTML = "";
   const filtrados = getIngresosFiltrados();
-  const totalFiltrado = filtrados.reduce((acc, i) => acc + parsePrecio(i.precio), 0);
+  const totalFiltrado = filtrados.reduce((acc, i) => acc + getMontoIngresoParaFiltro(i), 0);
   if (kpiFiltrado) kpiFiltrado.textContent = formatCOP(totalFiltrado);
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / ingresosPageSize));
+  ingresosPaginaActual = Math.min(ingresosPaginaActual, totalPaginas);
+  const inicio = (ingresosPaginaActual - 1) * ingresosPageSize;
+  const pagina = filtrados.slice(inicio, inicio + ingresosPageSize);
 
   if (!filtrados.length) {
     tabla.innerHTML = `<tr><td colspan="7" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
+    renderPaginacionIngresos(0, 0);
     return;
   }
 
-  filtrados.forEach(i => {
+  pagina.forEach(i => {
     const fecha = i.fecha ? new Date(i.fecha).toLocaleDateString("es-CO") : "-";
     const precio = i.precio != null ? formatCOP(parsePrecio(i.precio)) : "-";
 
@@ -2176,10 +2499,38 @@ function renderTablaIngresos() {
         <td>${escapeHTML(i.servicio || "-")}</td>
         <td>${escapeHTML(i.trabajador || "-")}</td>
         <td>${precio}</td>
-        <td>${metodoPagoTexto(i.metodo_pago || "sin_registrar")}</td>
+        <td>${renderPagoIngreso(i)}</td>
         <td>${escapeHTML(i.tiempo || "-")}</td>
       </tr>
     `;
+  });
+
+  renderPaginacionIngresos(filtrados.length, totalPaginas);
+}
+
+function renderPaginacionIngresos(total, totalPaginas) {
+  if (!paginacionIngresos) return;
+  if (!total || totalPaginas <= 1) {
+    paginacionIngresos.innerHTML = total ? `<span>${total} registros</span>` : "";
+    return;
+  }
+
+  paginacionIngresos.innerHTML = `
+    <span>${total} registros - pagina ${ingresosPaginaActual} de ${totalPaginas}</span>
+    <div>
+      <button type="button" ${ingresosPaginaActual <= 1 ? "disabled" : ""} data-page-action="prev">Anterior</button>
+      <button type="button" ${ingresosPaginaActual >= totalPaginas ? "disabled" : ""} data-page-action="next">Siguiente</button>
+    </div>
+  `;
+
+  paginacionIngresos.querySelector('[data-page-action="prev"]')?.addEventListener("click", () => {
+    ingresosPaginaActual = Math.max(1, ingresosPaginaActual - 1);
+    renderTablaIngresos();
+  });
+
+  paginacionIngresos.querySelector('[data-page-action="next"]')?.addEventListener("click", () => {
+    ingresosPaginaActual = Math.min(totalPaginas, ingresosPaginaActual + 1);
+    renderTablaIngresos();
   });
 }
 
@@ -2248,22 +2599,26 @@ function abrirModalPagoEfectuado(id) {
   SwalPremium.fire({
     title: pendiente ? `Pago de ${pendiente.placa}` : "Pago efectuado",
     html: `
-      <select id="metodoPagoPendiente" class="swal2-input">
+      <select id="pendienteMetodoPago" class="swal2-input">
         <option value="">Selecciona metodo de pago</option>
         <option value="efectivo">Efectivo</option>
         <option value="transferencia">Transferencia</option>
         <option value="bre_b">Bre-B</option>
+        <option value="mixto">Pago mixto</option>
       </select>
+      ${renderPagoMixtoForm(parsePrecio(pendiente?.precio), "pendiente")}
     `,
     confirmButtonText: "Registrar pago",
     showCancelButton: true,
+    didOpen: () => bindPagoMixtoUI(parsePrecio(pendiente?.precio), "pendiente"),
     preConfirm: () => {
-      const metodo = document.getElementById("metodoPagoPendiente")?.value || "";
+      const metodo = document.getElementById("pendienteMetodoPago")?.value || "";
       if (!metodo) {
         Swal.showValidationMessage("Selecciona el metodo de pago");
         return false;
       }
-      return { metodo };
+      const payload = getPaymentPayloadFromValues(metodo, parsePrecio(pendiente?.precio), "pendiente");
+      return payload || false;
     }
   }).then(result => {
     if (!result.isConfirmed) return;
@@ -2272,7 +2627,7 @@ function abrirModalPagoEfectuado(id) {
     fetch(
       `${API_URL}?action=marcarPagoEfectuado` +
       `&id=${encodeURIComponent(id)}` +
-      `&metodo_pago=${encodeURIComponent(result.value.metodo)}`
+      result.value.query
     )
       .then(res => res.json())
       .then(resp => {
@@ -2294,10 +2649,16 @@ function abrirModalPagoEfectuado(id) {
 }
 
 /* ---------- EVENTO FILTRO BUSCADOR ---------- */
-if (buscador) buscador.oninput = renderTablaIngresos;
-if (filtroMetodoPago) filtroMetodoPago.onchange = renderTablaIngresos;
-if (filtroIngresosTrabajador) filtroIngresosTrabajador.onchange = renderTablaIngresos;
-if (filtroIngresosServicio) filtroIngresosServicio.onchange = renderTablaIngresos;
+function resetRenderTablaIngresos() {
+  ingresosPaginaActual = 1;
+  renderTablaIngresos();
+}
+
+if (buscador) buscador.oninput = resetRenderTablaIngresos;
+if (filtroMetodoPago) filtroMetodoPago.onchange = resetRenderTablaIngresos;
+if (filtroIngresosTrabajador) filtroIngresosTrabajador.onchange = resetRenderTablaIngresos;
+if (filtroIngresosServicio) filtroIngresosServicio.onchange = resetRenderTablaIngresos;
+if (filtroIngresosFecha) filtroIngresosFecha.onchange = resetRenderTablaIngresos;
 if (btnHistorialPlaca) {
   btnHistorialPlaca.addEventListener("click", () => abrirModalHistorialPlaca());
 }
