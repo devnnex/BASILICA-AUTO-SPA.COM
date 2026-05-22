@@ -170,6 +170,7 @@
             <option value="efectivo">Efectivo</option>
             <option value="transferencia">Transferencia</option>
             <option value="bre_b">Bre-B</option>
+            <option value="mixto">Mixto</option>
             <option value="sin_registrar">Sin registrar</option>
           </select>
           <button id="btnHistorialPlaca" class="history-open-button" type="button">
@@ -187,6 +188,13 @@
         </select>
         <select id="filtroIngresosServicio" class="glass-select">
           <option value="">Todos los servicios</option>
+        </select>
+        <select id="filtroIngresosFecha" class="glass-select">
+          <option value="hoy">Hoy</option>
+          <option value="ayer">Ayer</option>
+          <option value="7">Ultimos 7 dias</option>
+          <option value="30">Ultimos 30 dias</option>
+          <option value="todos">Todos</option>
         </select>
       </div>
 
@@ -223,6 +231,7 @@
         </thead>
         <tbody id="tablaIngresos"></tbody>
       </table>
+      <div id="paginacionIngresos" class="table-pagination"></div>
     </section>
 
     <section id="ganancias" class="section">
