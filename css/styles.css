@@ -1228,6 +1228,14 @@ button:active {
   text-shadow: none;
 }
 
+.card-glass-neon .neon {
+  max-width: 100%;
+  font-size: clamp(1.2rem, 2vw, 1.58rem);
+  line-height: 1.08;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .card-glass-neon small,
 .liquidacion-info small {
   color: var(--text-soft) !important;
@@ -1244,6 +1252,39 @@ button:active {
   gap: 12px;
   flex-wrap: wrap;
   margin: 0 0 18px;
+}
+
+.finder-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  margin: 0;
+}
+
+.section-heading > .finder-controls {
+  width: min(100%, 620px);
+  margin-left: auto;
+}
+
+.section-heading > .liquidacion-filters {
+  width: min(100%, 760px);
+}
+
+.finder-controls input,
+.finder-controls select,
+.finder-controls .glass-select {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.finder-controls input {
+  flex: 1 1 230px;
+}
+
+.finder-controls select,
+.finder-controls .glass-select {
+  flex: 0 1 230px;
 }
 
 .bubble-board {
@@ -1978,6 +2019,12 @@ button:active {
   background: var(--accent-soft);
 }
 
+.payment-pill.pendiente {
+  color: #8a5a00;
+  background: #fff3bf;
+  border-color: #ffd166;
+}
+
 .payment-pill.sin_registrar {
   color: var(--text-muted);
 }
@@ -2081,6 +2128,7 @@ button:active {
 
   .section-heading > input,
   .section-heading > select,
+  .section-heading > .finder-controls,
   .section-heading > .filters-row,
   .section-heading > .history-actions {
     width: 100%;
@@ -2148,6 +2196,11 @@ button:active {
   .modal-history-summary,
   .mixed-payment-box {
     grid-template-columns: 1fr;
+  }
+
+  .finder-controls {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .modal-history-list article {
