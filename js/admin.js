@@ -2657,7 +2657,7 @@ function renderTablaIngresos() {
   const pagina = filtrados.slice(inicio, inicio + ingresosPageSize);
 
   if (!filtrados.length) {
-    tabla.innerHTML = `<tr><td colspan="7" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
+    tabla.innerHTML = `<tr><td colspan="8" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
     renderPaginacionIngresos(0, 0);
     return;
   }
@@ -2675,11 +2675,76 @@ function renderTablaIngresos() {
         <td>${precio}</td>
         <td>${renderPagoIngreso(i)}</td>
         <td>${escapeHTML(i.tiempo || "-")}</td>
+        <td>
+          <button
+            type="button"
+            class="delete delete-income"
+            data-id="${escapeHTML(i.id)}"
+            title="Eliminar servicio realizado"
+            aria-label="Eliminar servicio realizado"
+          >
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </td>
       </tr>
     `;
   });
 
+  tabla.querySelectorAll(".delete-income").forEach(btn => {
+    btn.addEventListener("click", () => eliminarServicioRealizado(btn.dataset.id));
+  });
+
   renderPaginacionIngresos(filtrados.length, totalPaginas);
+}
+
+function eliminarServicioRealizado(id) {
+  const servicio = ingresosDetalle.find(i => String(i.id) === String(id));
+  if (!id || !servicio) {
+    SwalPremium.fire("No encontrado", "No se pudo identificar el servicio realizado.", "warning");
+    return;
+  }
+
+  SwalPremium.fire({
+    title: "Eliminar servicio realizado",
+    html: `
+      <div class="delete-income-summary">
+        <span>Placa: <b>${escapeHTML(servicio.placa || "-")}</b></span>
+        <span>Servicio: <b>${escapeHTML(servicio.servicio || "-")}</b></span>
+        <span>Trabajador: <b>${escapeHTML(servicio.trabajador || "-")}</b></span>
+        <span>Valor: <b>${formatCOP(servicio.precio)}</b></span>
+      </div>
+    `,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Eliminar",
+    cancelButtonText: "Cancelar",
+    confirmButtonColor: "#d94f4f"
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Eliminando servicio realizado...");
+    fetch(`${API_URL}?action=eliminarServicioRealizado&id=${encodeURIComponent(id)}`)
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("Error", resp.error, "error");
+          return;
+        }
+
+        ingresosDetalle = ingresosDetalle.filter(i => String(i.id) !== String(id));
+        return Promise.all([
+          cargarIngresos({ silent: true }),
+          cargarLiquidaciones({ silent: true }),
+          cargarPendientesPago({ silent: true })
+        ]).then(() => {
+          SwalPremium.fire("Eliminado", "El servicio se retiro de ingresos y liquidaciones.", "success");
+        });
+      })
+      .catch(() => {
+        SwalPremium.fire("Error de red", "No se pudo eliminar el servicio realizado.", "error");
+      })
+      .finally(() => hideAppLoader());
+  });
 }
 
 function renderPaginacionIngresos(total, totalPaginas) {
@@ -3688,7 +3753,7 @@ function cargarIngresos(options = {}) {
     .catch(err => {
       console.error("Error cargando ingresos:", err);
       if (tabla) {
-        tabla.innerHTML = `<tr><td colspan="7" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
+        tabla.innerHTML = `<tr><td colspan="8" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
       }
     })
     .finally(() => {
