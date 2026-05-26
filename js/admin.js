@@ -438,6 +438,10 @@ function esOperarioAsignable(trabajador) {
   );
 }
 
+function esOperarioLiquidable(trabajador) {
+  return Boolean(trabajador && !normalizarTexto(trabajador.rol));
+}
+
 function normalizarPlaca(valor) {
   return String(valor || "").trim().toUpperCase().replace(/\s+/g, "");
 }
@@ -3010,7 +3014,9 @@ function renderFiltroTrabajadores() {
   filtroTrabajador.innerHTML =
     `<option value="">Todos los trabajadores</option>`;
 
-  trabajadoresData.forEach(t => {
+  const trabajadoresLiquidables = trabajadoresData.filter(esOperarioLiquidable);
+
+  trabajadoresLiquidables.forEach(t => {
     filtroTrabajador.innerHTML += `
       <option value="${escapeHTML(t.nombre || "")}">${escapeHTML(t.nombre || "Trabajador")}</option>
     `;
@@ -3019,7 +3025,7 @@ function renderFiltroTrabajadores() {
   // 🔁 Restaurar selección si aún existe
   if (
     seleccionado &&
-    trabajadoresData.some(t => t.nombre === seleccionado)
+    trabajadoresLiquidables.some(t => t.nombre === seleccionado)
   ) {
     filtroTrabajador.value = seleccionado;
   }
@@ -3122,7 +3128,7 @@ function renderCardsTrabajador() {
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
   // 1️⃣ Filtrar trabajadores según selección
-  let trabajadoresAFiltrar = [...trabajadoresData];
+  let trabajadoresAFiltrar = trabajadoresData.filter(esOperarioLiquidable);
   if (trabajadorSeleccionado) {
     trabajadoresAFiltrar = trabajadoresAFiltrar.filter(
       t => t.nombre === trabajadorSeleccionado
@@ -3546,7 +3552,7 @@ function renderLiquidaciones() {
   const trabajadorResumenFiltro = filtroTrabajador?.value || "";
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
-  let trabajadoresFiltrados = [...trabajadoresData];
+  let trabajadoresFiltrados = trabajadoresData.filter(esOperarioLiquidable);
   if (trabajadorResumenFiltro) {
     trabajadoresFiltrados = trabajadoresFiltrados.filter(t => t.nombre === trabajadorResumenFiltro);
   }
@@ -3609,11 +3615,13 @@ function renderFiltroLiquidaciones() {
   const seleccionado = filtroLiquidacionesTrabajador.value;
 
   filtroLiquidacionesTrabajador.innerHTML = `<option value="">Todos los trabajadores</option>`;
-  trabajadoresData.forEach(t => {
+  const trabajadoresLiquidables = trabajadoresData.filter(esOperarioLiquidable);
+
+  trabajadoresLiquidables.forEach(t => {
     filtroLiquidacionesTrabajador.innerHTML += `<option value="${escapeHTML(t.nombre || "")}">${escapeHTML(t.nombre || "Trabajador")}</option>`;
   });
 
-  if (seleccionado && trabajadoresData.some(t => t.nombre === seleccionado)) {
+  if (seleccionado && trabajadoresLiquidables.some(t => t.nombre === seleccionado)) {
     filtroLiquidacionesTrabajador.value = seleccionado;
   }
 }
