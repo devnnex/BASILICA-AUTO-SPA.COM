@@ -429,6 +429,15 @@ function normalizarTexto(valor) {
     .trim();
 }
 
+function esOperarioAsignable(trabajador) {
+  return Boolean(
+    trabajador &&
+    normalizarTexto(trabajador.estado) === "libre" &&
+    !normalizarTexto(trabajador.rol) &&
+    normalizarTexto(trabajador.activo || "activo") !== "inactivo"
+  );
+}
+
 function normalizarPlaca(valor) {
   return String(valor || "").trim().toUpperCase().replace(/\s+/g, "");
 }
@@ -679,6 +688,7 @@ function renderActivos() {
             <button class="add-expense"><i class="fa-solid fa-plus"></i> Gasto</button>
             <button class="ghost detail"><i class="fa-solid fa-list-check"></i> Ver gastos</button>
             <button class="print"><i class="fa-solid fa-print"></i> Recibo</button>
+            <button class="delete cancel-active" title="Eliminar lavado activo"><i class="fa-solid fa-trash-can"></i> Eliminar</button>
             <button class="confirm"><i class="fa-solid fa-check"></i> Confirmar</button>
           </div>
         </div>
@@ -689,6 +699,7 @@ function renderActivos() {
       item.querySelector(".worker-reassign").onclick = () => abrirModalReasignarTrabajador(l);
       item.querySelector(".detail").onclick = () => abrirDetalleGastos(l);
       item.querySelector(".print").onclick = () => imprimirRecibo(l);
+      item.querySelector(".cancel-active").onclick = () => eliminarLavadoActivo(l.id);
       item.querySelector(".confirm").onclick = () => confirmarLavado(l.id);
 
     });
@@ -870,7 +881,7 @@ function abrirModalAdicional(lavado) {
 }
 
 function abrirModalReasignarTrabajador(lavado) {
-  const libres = trabajadoresData.filter(t => t.estado === "libre" && t.nombre !== lavado.trabajador);
+  const libres = trabajadoresData.filter(t => esOperarioAsignable(t) && t.nombre !== lavado.trabajador);
 
   if (!libres.length) {
     SwalPremium.fire("Sin disponibilidad", "No hay trabajadores libres para reasignar.", "info");
@@ -1557,7 +1568,7 @@ function abrirModalAgendarServicio(servicio) {
           select.innerHTML = `<option value="">Asignar automáticamente</option>`;
 
           data
-            .filter(t => t.estado === "libre")
+            .filter(esOperarioAsignable)
             .forEach(t => {
               const opt = document.createElement("option");
               opt.value = t.nombre;
@@ -2216,6 +2227,63 @@ SwalPremium.fire({
       .finally(() => {
         hideAppLoader();
       });
+  });
+}
+
+function eliminarLavadoActivo(id) {
+  const lavado = activosData.find(l => String(l.id) === String(id));
+  const item = lista.querySelector(`[data-id="${id}"]`);
+
+  SwalPremium.fire({
+    title: "Eliminar lavado activo",
+    html: lavado ? `
+      <div class="swal-summary">
+        <span>Placa: <b>${escapeHTML(lavado.placa || "-")}</b></span>
+        <span>Servicio: <b>${escapeHTML(lavado.servicio || "-")}</b></span>
+        <span>Operario: <b>${escapeHTML(lavado.trabajador || "-")}</b></span>
+      </div>
+    ` : "Se eliminara el lavado activo y se liberara el operario.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Eliminar",
+    cancelButtonText: "Cancelar"
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    if (item) item.style.opacity = ".45";
+    showAppLoader("Eliminando lavado activo...");
+
+    fetch(`${API_URL}?action=eliminarLavadoActivo&id=${encodeURIComponent(id)}`)
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          if (item) item.style.opacity = "1";
+          SwalPremium.fire("Error", resp.error, "error");
+          return;
+        }
+
+        if (item) item.remove();
+        gastosPorLavado.delete(String(id));
+        gastosCargados.delete(String(id));
+        gastosCargando.delete(String(id));
+
+        return Promise.all([
+          cargarActivos({ silent: true }),
+          cargarTrabajadores({ silent: true })
+        ]).then(() => {
+          SwalPremium.fire({
+            icon: "success",
+            title: "Lavado eliminado",
+            timer: 1200,
+            showConfirmButton: false
+          });
+        });
+      })
+      .catch(() => {
+        if (item) item.style.opacity = "1";
+        SwalPremium.fire("Error de red", "No se pudo eliminar el lavado activo", "error");
+      })
+      .finally(() => hideAppLoader());
   });
 }
 
@@ -2959,30 +3027,47 @@ function renderFiltroTrabajadores() {
 
 
 
-function filtrarPorFecha(detalle, dias) {
-  if (!dias) return detalle;
-
+function obtenerRangoFechaFiltro(filtro) {
+  const valor = String(filtro || "15");
   const hoy = new Date();
-  const limite = new Date();
-  limite.setDate(hoy.getDate() - Number(dias));
+  const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const fin = new Date(inicioHoy);
+  fin.setDate(fin.getDate() + 1);
 
-  return detalle.filter(i => {
-    if (!i.fecha) return false;
-    const fechaServicio = new Date(i.fecha);
-    return fechaServicio >= limite;
-  });
+  if (valor === "hoy") {
+    return { inicio: inicioHoy, fin };
+  }
+
+  if (valor === "ayer") {
+    const inicio = new Date(inicioHoy);
+    inicio.setDate(inicio.getDate() - 1);
+    return { inicio, fin: inicioHoy };
+  }
+
+  const dias = Math.max(1, Number(valor) || 15);
+  const inicio = new Date(inicioHoy);
+  inicio.setDate(inicio.getDate() - (dias - 1));
+  return { inicio, fin };
+}
+
+function fechaDentroDeFiltro(fecha, filtro) {
+  if (!fecha) return false;
+  const d = fecha instanceof Date ? fecha : new Date(fecha);
+  if (isNaN(d)) return false;
+  const rango = obtenerRangoFechaFiltro(filtro);
+  return d >= rango.inicio && d < rango.fin;
+}
+
+function filtrarPorFecha(detalle, filtro) {
+  if (!filtro) return detalle;
+  return detalle.filter(i => fechaDentroDeFiltro(i.fecha, filtro));
 }
 
 //FUNCION PARA ANALIZAR CON FILTRO POR FECHA SI LA LIQUIDACION FUE DENTRO DEL RANGO DEL SELECT
 function liquidacionAplica(liquidacion, diasFiltro) {
   if (!liquidacion) return false;
   if (!diasFiltro) return true;
-
-  const hoy = new Date();
-  const limite = new Date();
-  limite.setDate(hoy.getDate() - Number(diasFiltro));
-
-  return liquidacion.fecha >= limite;
+  return fechaDentroDeFiltro(liquidacion.fecha, diasFiltro);
 }
 
 
@@ -3457,7 +3542,7 @@ function renderLiquidaciones() {
   if (!tablaLiquidaciones || !trabajadoresData.length) return;
 
   const trabajadorFiltro = filtroLiquidacionesTrabajador.value;
-  const diasFiltro = filtroLiquidacionesFecha.value || 30;
+  const fechaFiltro = filtroLiquidacionesFecha.value || "15";
   const trabajadorResumenFiltro = filtroTrabajador?.value || "";
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
@@ -3476,19 +3561,15 @@ function renderLiquidaciones() {
 
   tablaLiquidaciones.innerHTML = "";
 
-  const hoy = new Date();
-  const limite = new Date();
-  limite.setDate(hoy.getDate() - Number(diasFiltro));
-
   trabajadoresFiltrados.forEach(t => {
     const liquidacion = liquidacionesData[t.id] || null;
 
     // Aplicar filtro de fecha
-    if (liquidacion && liquidacion.fecha && liquidacion.fecha < limite) return;
+    if (liquidacion && liquidacion.fecha && !fechaDentroDeFiltro(liquidacion.fecha, fechaFiltro)) return;
 
     // Calcular total generado desde ingresosDetalle
     const ingresosTrabajador = ingresosDetalle
-      .filter(i => i.trabajador === t.nombre && new Date(i.fecha) >= limite)
+      .filter(i => i.trabajador === t.nombre && fechaDentroDeFiltro(i.fecha, fechaFiltro))
       .reduce((acc, i) => acc + Number(i.precio), 0);
 
     // Valor liquidado en COP
