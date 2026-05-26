@@ -51,6 +51,7 @@ function metodoPagoTexto(metodo) {
     transferencia: "Transferencia",
     bre_b: "Bre-B",
     mixto: "Mixto",
+    pendiente: "Pendiente por pagar",
     sin_registrar: "Sin registrar"
   };
   return labels[metodo] || "Sin registrar";
@@ -369,6 +370,11 @@ const trabRol = document.getElementById("trabRol");
 const trabPassword = document.getElementById("trabPassword");
 const srvNombre = document.getElementById("srvNombre");
 const srvPrecio = document.getElementById("srvPrecio");
+const buscadorServicios = document.getElementById("buscadorServicios");
+const selectorServicios = document.getElementById("selectorServicios");
+const buscadorTrabajadores = document.getElementById("buscadorTrabajadores");
+const selectorTrabajadores = document.getElementById("selectorTrabajadores");
+const buscadorLiquidaciones = document.getElementById("buscadorLiquidaciones");
 
 let activosData = [];
 const gastosPorLavado = new Map();
@@ -413,6 +419,14 @@ function escapeHTML(valor) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function normalizarTexto(valor) {
+  return String(valor ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
 
 function normalizarPlaca(valor) {
@@ -1386,6 +1400,8 @@ if (placaHistorialInput) {
 
 /* ---------- Activación del buscador ---------- */
 buscadorActivos.addEventListener("input", renderActivos);
+if (buscadorServicios) buscadorServicios.addEventListener("input", renderServicios);
+if (selectorServicios) selectorServicios.addEventListener("change", renderServicios);
 
 /* ===============================
     CARGAR SERVICIOS
@@ -1398,6 +1414,7 @@ function cargarServicios(options = {}) {
     .then(res => res.json())
     .then(data => {
       serviciosData = Array.isArray(data) ? data : [];
+      renderFiltroServicios();
       renderServicios();
     })
     .catch(err => console.error("Error servicios:", err))
@@ -1412,16 +1429,54 @@ function cargarServicios(options = {}) {
     RENDER SERVICIOS
    =============================== */
 
+function servicioCoincideConBusqueda(servicio, busqueda) {
+  if (!busqueda) return true;
+  return normalizarTexto(`${servicio.nombre || ""} ${servicio.precio || ""}`).includes(busqueda);
+}
+
+function getServiciosFiltrados() {
+  const busqueda = normalizarTexto(buscadorServicios?.value || "");
+  const servicioSeleccionado = selectorServicios?.value || "";
+
+  return serviciosData.filter(servicio => {
+    const coincideSelect = !servicioSeleccionado || String(servicio.id) === servicioSeleccionado;
+    return coincideSelect && servicioCoincideConBusqueda(servicio, busqueda);
+  });
+}
+
+function renderFiltroServicios() {
+  if (!selectorServicios) return;
+
+  const seleccionado = selectorServicios.value;
+  selectorServicios.innerHTML = `<option value="">Todos los servicios</option>`;
+
+  serviciosData.forEach(servicio => {
+    selectorServicios.innerHTML += `
+      <option value="${escapeHTML(servicio.id)}">${escapeHTML(servicio.nombre || "Servicio")}</option>
+    `;
+  });
+
+  if (seleccionado && serviciosData.some(servicio => String(servicio.id) === seleccionado)) {
+    selectorServicios.value = seleccionado;
+  }
+}
+
 function renderServicios() {
   const grid = document.getElementById("gridServicios");
   const idsRenderizados = new Set();
+  const serviciosFiltrados = getServiciosFiltrados();
 
   if (!serviciosData.length) {
     grid.innerHTML = "<p>No hay servicios</p>";
     return;
   }
 
-  serviciosData.forEach(s => {
+  if (!serviciosFiltrados.length) {
+    grid.innerHTML = "<p>No hay servicios para este filtro</p>";
+    return;
+  }
+
+  serviciosFiltrados.forEach(s => {
     idsRenderizados.add(String(s.id));
 
     let card = grid.querySelector(`[data-id="${s.id}"]`);
@@ -1681,6 +1736,7 @@ function cargarTrabajadores(options = {}) {
     .then(data => {
       trabajadoresData = Array.isArray(data) ? data : [];
 
+      renderFiltroTablaTrabajadores();
       renderTrabajadores();        // tabla
       renderFiltroTrabajadores();  // select
    
@@ -1695,8 +1751,43 @@ function cargarTrabajadores(options = {}) {
     RENDER TRABAJADORES
    =============================== */
 
+function trabajadorCoincideConBusqueda(trabajador, busqueda) {
+  if (!busqueda) return true;
+  return normalizarTexto(
+    `${trabajador.nombre || ""} ${trabajador.estado || ""} ${trabajador.correo || ""} ${trabajador.rol || ""}`
+  ).includes(busqueda);
+}
+
+function getTrabajadoresFiltrados() {
+  const busqueda = normalizarTexto(buscadorTrabajadores?.value || "");
+  const trabajadorSeleccionado = selectorTrabajadores?.value || "";
+
+  return trabajadoresData.filter(trabajador => {
+    const coincideSelect = !trabajadorSeleccionado || trabajador.nombre === trabajadorSeleccionado;
+    return coincideSelect && trabajadorCoincideConBusqueda(trabajador, busqueda);
+  });
+}
+
+function renderFiltroTablaTrabajadores() {
+  if (!selectorTrabajadores) return;
+
+  const seleccionado = selectorTrabajadores.value;
+  selectorTrabajadores.innerHTML = `<option value="">Todos los trabajadores</option>`;
+
+  trabajadoresData.forEach(trabajador => {
+    selectorTrabajadores.innerHTML += `
+      <option value="${escapeHTML(trabajador.nombre || "")}">${escapeHTML(trabajador.nombre || "Trabajador")}</option>
+    `;
+  });
+
+  if (seleccionado && trabajadoresData.some(trabajador => trabajador.nombre === seleccionado)) {
+    selectorTrabajadores.value = seleccionado;
+  }
+}
+
 function renderTrabajadores() {
   const tbody = document.getElementById("tablaTrabajadores");
+  const trabajadoresFiltrados = getTrabajadoresFiltrados();
   tbody.innerHTML = "";
 
   if (!trabajadoresData.length) {
@@ -1704,7 +1795,12 @@ function renderTrabajadores() {
     return;
   }
 
-  trabajadoresData.forEach(t => {
+  if (!trabajadoresFiltrados.length) {
+    tbody.innerHTML = `<tr><td colspan="4">Sin trabajadores para este filtro</td></tr>`;
+    return;
+  }
+
+  trabajadoresFiltrados.forEach(t => {
     const tr = document.createElement("tr");
     const actorEsJefe = currentSession?.rol === "jefe";
     const rol = String(t.rol || "").toLowerCase();
@@ -1757,6 +1853,9 @@ function renderTrabajadores() {
     tbody.appendChild(tr);
   });
 }
+
+if (buscadorTrabajadores) buscadorTrabajadores.addEventListener("input", renderTrabajadores);
+if (selectorTrabajadores) selectorTrabajadores.addEventListener("change", renderTrabajadores);
 
 
 
@@ -2369,7 +2468,7 @@ function getIngresosFiltrados() {
 
   return ingresosDetalle.filter(i => {
     const fecha = toDateSafe(i.fecha);
-    const metodoIngreso = i.metodo_pago || "sin_registrar";
+    const metodoIngreso = i.estado_pago === "pendiente" ? "pendiente" : (i.metodo_pago || "sin_registrar");
     const pagos = Array.isArray(i.pagos) ? i.pagos : [];
     const coincideMetodo =
       !metodo ||
@@ -2406,7 +2505,8 @@ function getMontoIngresoParaFiltro(i) {
     .reduce((acc, pago) => acc + parsePrecio(pago.monto), 0);
 
   if (montoPorMetodo > 0) return montoPorMetodo;
-  return (i.metodo_pago || "sin_registrar") === metodo ? precio : 0;
+  const metodoIngreso = i.estado_pago === "pendiente" ? "pendiente" : (i.metodo_pago || "sin_registrar");
+  return metodoIngreso === metodo ? precio : 0;
 }
 
 function coincideFiltroFecha(fecha, filtro) {
@@ -2431,7 +2531,9 @@ function coincideFiltroFecha(fecha, filtro) {
 function renderPagoIngreso(i) {
   const pagos = Array.isArray(i.pagos) ? i.pagos.filter(p => p.metodo && Number(p.monto || 0) > 0) : [];
 
-  if ((i.metodo_pago || "") === "mixto" && pagos.length) {
+  const metodoIngreso = i.estado_pago === "pendiente" ? "pendiente" : (i.metodo_pago || "sin_registrar");
+
+  if (metodoIngreso === "mixto" && pagos.length) {
     return `
       <div class="payment-split">
         ${pagos.map(pago => `
@@ -2444,7 +2546,7 @@ function renderPagoIngreso(i) {
     `;
   }
 
-  return `<span class="payment-pill ${escapeHTML(i.metodo_pago || "sin_registrar")}">${metodoPagoTexto(i.metodo_pago || "sin_registrar")}</span>`;
+  return `<span class="payment-pill ${escapeHTML(metodoIngreso)}">${metodoPagoTexto(metodoIngreso)}</span>`;
 }
 
 function renderFiltrosIngresos() {
@@ -2809,11 +2911,21 @@ const filtroFecha = document.getElementById("filtroFecha");
 
 
 if (filtroTrabajador) {
-  filtroTrabajador.onchange = renderCardsTrabajador;
+  filtroTrabajador.onchange = () => {
+    renderCardsTrabajador();
+    renderLiquidaciones();
+  };
 }
 
 if (filtroFecha) {
   filtroFecha.onchange = renderCardsTrabajador;
+}
+
+if (buscadorLiquidaciones) {
+  buscadorLiquidaciones.addEventListener("input", () => {
+    renderCardsTrabajador();
+    renderLiquidaciones();
+  });
 }
 
 
@@ -2832,7 +2944,7 @@ function renderFiltroTrabajadores() {
 
   trabajadoresData.forEach(t => {
     filtroTrabajador.innerHTML += `
-      <option value="${t.nombre}">${t.nombre}</option>
+      <option value="${escapeHTML(t.nombre || "")}">${escapeHTML(t.nombre || "Trabajador")}</option>
     `;
   });
 
@@ -2922,12 +3034,18 @@ function renderCardsTrabajador() {
 
   const trabajadorSeleccionado = filtroTrabajador.value;
   const diasSeleccionados = filtroFecha.value;
+  const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
   // 1️⃣ Filtrar trabajadores según selección
   let trabajadoresAFiltrar = [...trabajadoresData];
   if (trabajadorSeleccionado) {
     trabajadoresAFiltrar = trabajadoresAFiltrar.filter(
       t => t.nombre === trabajadorSeleccionado
+    );
+  }
+  if (busquedaLiquidaciones) {
+    trabajadoresAFiltrar = trabajadoresAFiltrar.filter(trabajador =>
+      trabajadorCoincideConBusqueda(trabajador, busquedaLiquidaciones)
     );
   }
 
@@ -3340,10 +3458,20 @@ function renderLiquidaciones() {
 
   const trabajadorFiltro = filtroLiquidacionesTrabajador.value;
   const diasFiltro = filtroLiquidacionesFecha.value || 30;
+  const trabajadorResumenFiltro = filtroTrabajador?.value || "";
+  const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
   let trabajadoresFiltrados = [...trabajadoresData];
+  if (trabajadorResumenFiltro) {
+    trabajadoresFiltrados = trabajadoresFiltrados.filter(t => t.nombre === trabajadorResumenFiltro);
+  }
   if (trabajadorFiltro) {
     trabajadoresFiltrados = trabajadoresFiltrados.filter(t => t.nombre === trabajadorFiltro);
+  }
+  if (busquedaLiquidaciones) {
+    trabajadoresFiltrados = trabajadoresFiltrados.filter(trabajador =>
+      trabajadorCoincideConBusqueda(trabajador, busquedaLiquidaciones)
+    );
   }
 
   tablaLiquidaciones.innerHTML = "";
@@ -3401,7 +3529,7 @@ function renderFiltroLiquidaciones() {
 
   filtroLiquidacionesTrabajador.innerHTML = `<option value="">Todos los trabajadores</option>`;
   trabajadoresData.forEach(t => {
-    filtroLiquidacionesTrabajador.innerHTML += `<option value="${t.nombre}">${t.nombre}</option>`;
+    filtroLiquidacionesTrabajador.innerHTML += `<option value="${escapeHTML(t.nombre || "")}">${escapeHTML(t.nombre || "Trabajador")}</option>`;
   });
 
   if (seleccionado && trabajadoresData.some(t => t.nombre === seleccionado)) {
@@ -3430,6 +3558,7 @@ function cargarTrabajadores(options = {}) {
     .then(data => {
       trabajadoresData = Array.isArray(data) ? data : [];
 
+      renderFiltroTablaTrabajadores();
       renderTrabajadores();
       renderFiltroTrabajadores();
       renderFiltroLiquidaciones();
