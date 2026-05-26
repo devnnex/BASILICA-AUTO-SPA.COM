@@ -171,6 +171,7 @@
             <option value="transferencia">Transferencia</option>
             <option value="bre_b">Bre-B</option>
             <option value="mixto">Mixto</option>
+            <option value="pendiente">Pendiente por pagar</option>
             <option value="sin_registrar">Sin registrar</option>
           </select>
           <button id="btnHistorialPlaca" class="history-open-button" type="button">
@@ -286,6 +287,12 @@
           <span class="eyebrow">Cat&aacute;logo</span>
           <h3>Servicios registrados</h3>
         </div>
+        <div class="finder-controls">
+          <input id="buscadorServicios" placeholder="Buscar servicio" autocomplete="off">
+          <select id="selectorServicios" class="glass-select">
+            <option value="">Todos los servicios</option>
+          </select>
+        </div>
       </div>
       <div id="gridServicios" class="grid-servicios"></div>
     </section>
@@ -295,6 +302,12 @@
         <div>
           <span class="eyebrow">Equipo</span>
         <h3>Trabajadores</h3>
+        </div>
+        <div class="finder-controls">
+          <input id="buscadorTrabajadores" placeholder="Buscar trabajador" autocomplete="off">
+          <select id="selectorTrabajadores" class="glass-select">
+            <option value="">Todos los trabajadores</option>
+          </select>
         </div>
       </div>
 
@@ -317,7 +330,8 @@
           <span class="eyebrow">N&oacute;mina operativa</span>
           <h3>Liquidaciones</h3>
         </div>
-        <div class="filters-row">
+        <div class="filters-row finder-controls liquidacion-filters">
+          <input id="buscadorLiquidaciones" placeholder="Buscar trabajador" autocomplete="off">
           <select id="filtroTrabajador" class="glass-select">
             <option value="">Todos los trabajadores</option>
           </select>
