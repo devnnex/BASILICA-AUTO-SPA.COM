@@ -1422,6 +1422,21 @@ button:active {
   font-weight: 720;
 }
 
+#ingresos .tabla th:last-child,
+#ingresos .tabla td:last-child {
+  width: 86px;
+  text-align: center;
+}
+
+.tabla td .delete-income {
+  width: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 8px;
+}
+
 #trabajadores .tabla {
   table-layout: fixed;
   overflow: hidden;
@@ -2053,6 +2068,20 @@ button:active {
 }
 
 .mixed-payment-total b {
+  color: var(--text);
+}
+
+.delete-income-summary {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.delete-income-summary span {
+  color: var(--text-soft);
+}
+
+.delete-income-summary b {
   color: var(--text);
 }
 
