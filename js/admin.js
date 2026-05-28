@@ -2043,6 +2043,11 @@ function eliminarTrabajador(trabajador) {
 }
 
 
+function getPagoMixtoTotalValue(totalSource) {
+  const total = typeof totalSource === "function" ? totalSource() : totalSource;
+  return Number(total || 0);
+}
+
 function getPaymentPayloadFromValues(metodo, total, prefijo = "") {
   if (metodo === "pendiente") {
     return { estadoPago: "pendiente", query: `&metodo_pago=&estado_pago=pendiente` };
@@ -2121,7 +2126,7 @@ function renderPagoMixtoForm(total, prefijo = "") {
         <label>Monto</label>
         <input id="${prefijo}Pago2Monto" class="swal2-input" type="number" min="0" step="100" value="0">
       </div>
-      <small class="mixed-payment-total">Total a pagar: <b>${formatCOP(total)}</b></small>
+      <small class="mixed-payment-total">Total a pagar: <b data-mixed-total-label>${formatCOP(total)}</b></small>
     </div>
   `;
 }
@@ -2131,17 +2136,29 @@ function bindPagoMixtoUI(total, prefijo = "") {
   const box = document.getElementById(`${prefijo}PagoMixtoBox`);
   const pago1Monto = document.getElementById(`${prefijo}Pago1Monto`);
   const pago2Monto = document.getElementById(`${prefijo}Pago2Monto`);
+  const totalLabel = box?.querySelector("[data-mixed-total-label]");
 
   if (!metodoSelect || !box) return;
 
+  function syncTotalLabel() {
+    const totalActual = getPagoMixtoTotalValue(total);
+    if (totalLabel) totalLabel.textContent = formatCOP(totalActual);
+    return totalActual;
+  }
+
+  box.syncMixedPaymentTotal = syncTotalLabel;
+
   metodoSelect.addEventListener("change", () => {
     box.classList.toggle("hidden", metodoSelect.value !== "mixto");
+    syncTotalLabel();
   });
 
   pago1Monto?.addEventListener("input", () => {
-    const restante = Math.max(0, total - Number(pago1Monto.value || 0));
+    const restante = Math.max(0, syncTotalLabel() - Number(pago1Monto.value || 0));
     if (pago2Monto) pago2Monto.value = restante;
   });
+
+  syncTotalLabel();
 }
 
 
@@ -2246,18 +2263,93 @@ function eliminarLavadoActivo(id) {
         <span>Servicio: <b>${escapeHTML(lavado.servicio || "-")}</b></span>
         <span>Operario: <b>${escapeHTML(lavado.trabajador || "-")}</b></span>
       </div>
+      <div class="cancel-payment-fields">
+        <div>
+          <label>Motivo de cancelacion</label>
+          <textarea id="cancelMotivo" class="swal2-textarea" placeholder="Ej: el cliente no alcanzo por tiempo"></textarea>
+        </div>
+        <div>
+          <label>Pago que realiza el cliente (opcional)</label>
+          <input id="cancelPago" class="swal2-input" type="number" min="0" step="100" placeholder="0">
+        </div>
+        <div id="cancelMetodoBox" class="hidden">
+          <label>Metodo de pago</label>
+          <select id="cancelMetodoPago" class="swal2-input">
+            <option value="">Selecciona metodo de pago</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="bre_b">Bre-B</option>
+            <option value="mixto">Pago mixto</option>
+          </select>
+          ${renderPagoMixtoForm(0, "cancel")}
+        </div>
+      </div>
     ` : "Se eliminara el lavado activo y se liberara el operario.",
     icon: "warning",
     showCancelButton: true,
     confirmButtonText: "Eliminar",
-    cancelButtonText: "Cancelar"
+    cancelButtonText: "Cancelar",
+    didOpen: () => {
+      const pagoInput = document.getElementById("cancelPago");
+      const metodoBox = document.getElementById("cancelMetodoBox");
+      const mixedBox = document.getElementById("cancelPagoMixtoBox");
+      const pago1Monto = document.getElementById("cancelPago1Monto");
+      const pago2Monto = document.getElementById("cancelPago2Monto");
+
+      bindPagoMixtoUI(() => Number(pagoInput?.value || 0), "cancel");
+
+      const syncPagoCancelacion = () => {
+        const monto = Number(pagoInput?.value || 0);
+        metodoBox?.classList.toggle("hidden", monto <= 0);
+        mixedBox?.syncMixedPaymentTotal?.();
+        if (pago1Monto && monto > 0) pago1Monto.value = monto;
+        if (pago2Monto) pago2Monto.value = 0;
+      };
+
+      pagoInput?.addEventListener("input", syncPagoCancelacion);
+      syncPagoCancelacion();
+    },
+    preConfirm: () => {
+      const montoCancelacion = Number(document.getElementById("cancelPago")?.value || 0);
+      const motivoCancelacion = document.getElementById("cancelMotivo")?.value.trim() || "";
+
+      if (montoCancelacion < 0) {
+        Swal.showValidationMessage("El pago no puede ser negativo");
+        return false;
+      }
+
+      if (montoCancelacion <= 0) {
+        return { query: motivoCancelacion ? `&motivo_cancelacion=${encodeURIComponent(motivoCancelacion)}` : "" };
+      }
+
+      if (!motivoCancelacion) {
+        Swal.showValidationMessage("Escribe el motivo de la cancelacion");
+        return false;
+      }
+
+      const metodo = document.getElementById("cancelMetodoPago")?.value || "";
+      if (!metodo) {
+        Swal.showValidationMessage("Selecciona el metodo de pago");
+        return false;
+      }
+
+      const payload = getPaymentPayloadFromValues(metodo, montoCancelacion, "cancel");
+      if (!payload) return false;
+
+      return {
+        query:
+          `&pago_cancelacion=${encodeURIComponent(montoCancelacion)}` +
+          `&motivo_cancelacion=${encodeURIComponent(motivoCancelacion)}` +
+          payload.query
+      };
+    }
   }).then(result => {
     if (!result.isConfirmed) return;
 
     if (item) item.style.opacity = ".45";
     showAppLoader("Eliminando lavado activo...");
 
-    fetch(`${API_URL}?action=eliminarLavadoActivo&id=${encodeURIComponent(id)}`)
+    fetch(`${API_URL}?action=eliminarLavadoActivo&id=${encodeURIComponent(id)}${result.value?.query || ""}`)
       .then(res => res.json())
       .then(resp => {
         if (resp.error) {
@@ -2273,11 +2365,13 @@ function eliminarLavadoActivo(id) {
 
         return Promise.all([
           cargarActivos({ silent: true }),
-          cargarTrabajadores({ silent: true })
+          cargarTrabajadores({ silent: true }),
+          cargarIngresos({ silent: true }),
+          cargarLiquidaciones({ silent: true })
         ]).then(() => {
           SwalPremium.fire({
             icon: "success",
-            title: "Lavado eliminado",
+            title: resp.registro_cancelado ? "Cancelacion registrada" : "Lavado eliminado",
             timer: 1200,
             showConfirmButton: false
           });
@@ -2433,6 +2527,7 @@ const kpiHoy = document.getElementById("kpiHoy");
 const kpiMes = document.getElementById("kpiMes");
 const kpiFiltrado = document.getElementById("kpiFiltrado");
 const buscador = document.getElementById("buscador");
+const btnRegistroManual = document.getElementById("btnRegistroManual");
 const btnHistorialPlaca = document.getElementById("btnHistorialPlaca");
 const btnPendientesPago = document.getElementById("btnPendientesPago");
 const filtroMetodoPago = document.getElementById("filtroMetodoPago");
@@ -2621,6 +2716,12 @@ function renderPagoIngreso(i) {
   return `<span class="payment-pill ${escapeHTML(metodoIngreso)}">${metodoPagoTexto(metodoIngreso)}</span>`;
 }
 
+function renderRegistroIngresoBadge(i) {
+  if (i?.tipo_registro !== "cancelado") return "";
+  const nota = i.nota ? ` title="${escapeHTML(i.nota)}"` : "";
+  return `<span class="record-badge"${nota}><i class="fa-solid fa-ban"></i> Cancelado</span>`;
+}
+
 function renderFiltrosIngresos() {
   const trabajadorActual = filtroIngresosTrabajador?.value || "";
   const servicioActual = filtroIngresosServicio?.value || "";
@@ -2670,7 +2771,7 @@ function renderTablaIngresos() {
       <tr>
         <td>${fecha}</td>
         <td>${escapeHTML(i.placa || "-")}</td>
-        <td>${escapeHTML(i.servicio || "-")}</td>
+        <td><span class="income-service-cell">${escapeHTML(i.servicio || "-")} ${renderRegistroIngresoBadge(i)}</span></td>
         <td>${escapeHTML(i.trabajador || "-")}</td>
         <td>${precio}</td>
         <td>${renderPagoIngreso(i)}</td>
@@ -2745,6 +2846,211 @@ function eliminarServicioRealizado(id) {
       })
       .finally(() => hideAppLoader());
   });
+}
+
+function toDatetimeLocalValue(fecha = new Date()) {
+  const d = new Date(fecha.getTime() - fecha.getTimezoneOffset() * 60000);
+  return d.toISOString().slice(0, 16);
+}
+
+function abrirModalRegistroManual() {
+  const serviciosDisponibles = serviciosData.filter(s => s && s.nombre);
+  const trabajadoresDisponibles = trabajadoresData.filter(t =>
+    esOperarioLiquidable(t) &&
+    normalizarTexto(t.activo || "activo") !== "inactivo"
+  );
+
+  if (!serviciosDisponibles.length || !trabajadoresDisponibles.length) {
+    SwalPremium.fire(
+      "Faltan datos",
+      "Carga al menos un servicio y un trabajador operativo para registrar manualmente.",
+      "warning"
+    );
+    return;
+  }
+
+  const servicioInicial = serviciosDisponibles[0];
+  const precioInicial = parsePrecio(servicioInicial.precio);
+
+  SwalPremium.fire({
+    title: "Registrar servicio realizado",
+    html: `
+      <div class="manual-service-form">
+        <div class="manual-service-field">
+          <label>Placa</label>
+          <input id="manualPlaca" class="swal2-input" placeholder="ABC123" autocomplete="off">
+        </div>
+        <div class="manual-service-field">
+          <label>Servicio</label>
+          <select id="manualServicio" class="swal2-input">
+            ${serviciosDisponibles.map(s => `
+              <option value="${escapeHTML(s.id)}" data-precio="${escapeHTML(s.precio)}">
+                ${escapeHTML(s.nombre)} - ${formatCOP(s.precio)}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="manual-service-field">
+          <label>Trabajador que lo realizo</label>
+          <select id="manualTrabajador" class="swal2-input">
+            ${trabajadoresDisponibles.map(t => `
+              <option value="${escapeHTML(t.nombre)}">${escapeHTML(t.nombre)}</option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="manual-service-field">
+          <label>Valor cobrado</label>
+          <input id="manualPrecio" class="swal2-input" type="number" min="0" step="100" value="${precioInicial}">
+        </div>
+        <div class="manual-service-field">
+          <label>Fecha y hora realizada</label>
+          <input id="manualFecha" class="swal2-input" type="datetime-local" value="${toDatetimeLocalValue()}">
+        </div>
+        <div class="manual-service-field">
+          <label>Metodo de pago</label>
+          <select id="manualMetodoPago" class="swal2-input">
+            <option value="">Selecciona metodo de pago</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="bre_b">Bre-B</option>
+            <option value="mixto">Pago mixto</option>
+            <option value="pendiente">Pendiente por pagar</option>
+          </select>
+        </div>
+        <div class="manual-service-field manual-service-wide">
+          ${renderPagoMixtoForm(precioInicial, "manual")}
+        </div>
+        <div class="manual-service-field manual-service-wide">
+          <label>Nota interna (opcional)</label>
+          <textarea id="manualNota" class="swal2-textarea" placeholder="Ej: servicio registrado al cierre"></textarea>
+        </div>
+      </div>
+    `,
+    icon: "question",
+    customClass: {
+      popup: "swal-glass-popup manual-service-popup"
+    },
+    showCancelButton: true,
+    confirmButtonText: "Registrar",
+    cancelButtonText: "Cancelar",
+    didOpen: () => {
+      const servicioSelect = document.getElementById("manualServicio");
+      const precioInput = document.getElementById("manualPrecio");
+      const mixedBox = document.getElementById("manualPagoMixtoBox");
+      const pago1Monto = document.getElementById("manualPago1Monto");
+      const pago2Monto = document.getElementById("manualPago2Monto");
+
+      bindPagoMixtoUI(() => Number(precioInput?.value || 0), "manual");
+
+      const syncPrecioServicio = () => {
+        const option = servicioSelect?.selectedOptions?.[0];
+        const precio = Number(option?.dataset?.precio || 0);
+        if (precioInput && precio > 0) precioInput.value = precio;
+        mixedBox?.syncMixedPaymentTotal?.();
+        if (pago1Monto && precio > 0) pago1Monto.value = precio;
+        if (pago2Monto) pago2Monto.value = 0;
+      };
+
+      const syncPagoManual = () => {
+        const precio = Number(precioInput?.value || 0);
+        mixedBox?.syncMixedPaymentTotal?.();
+        if (pago1Monto && precio > 0) pago1Monto.value = precio;
+        if (pago2Monto) pago2Monto.value = 0;
+      };
+
+      servicioSelect?.addEventListener("change", syncPrecioServicio);
+      precioInput?.addEventListener("input", syncPagoManual);
+    },
+    preConfirm: () => {
+      const placa = normalizarPlaca(document.getElementById("manualPlaca")?.value || "");
+      const servicioId = document.getElementById("manualServicio")?.value || "";
+      const servicio = serviciosDisponibles.find(s => String(s.id) === String(servicioId));
+      const trabajador = document.getElementById("manualTrabajador")?.value || "";
+      const precio = Number(document.getElementById("manualPrecio")?.value || 0);
+      const fechaValor = document.getElementById("manualFecha")?.value || "";
+      const fechaMs = fechaValor ? new Date(fechaValor).getTime() : Date.now();
+      const metodo = document.getElementById("manualMetodoPago")?.value || "";
+      const nota = document.getElementById("manualNota")?.value.trim() || "";
+
+      if (!placa) {
+        Swal.showValidationMessage("Escribe la placa");
+        return false;
+      }
+
+      if (!servicio?.nombre) {
+        Swal.showValidationMessage("Selecciona el servicio");
+        return false;
+      }
+
+      if (!trabajador) {
+        Swal.showValidationMessage("Selecciona el trabajador");
+        return false;
+      }
+
+      if (precio <= 0) {
+        Swal.showValidationMessage("El valor cobrado debe ser mayor a cero");
+        return false;
+      }
+
+      if (!fechaMs || Number.isNaN(fechaMs)) {
+        Swal.showValidationMessage("Selecciona una fecha valida");
+        return false;
+      }
+
+      if (!metodo) {
+        Swal.showValidationMessage("Selecciona el metodo de pago");
+        return false;
+      }
+
+      const payload = getPaymentPayloadFromValues(metodo, precio, "manual");
+      if (!payload) return false;
+
+      return {
+        query:
+          `&placa=${encodeURIComponent(placa)}` +
+          `&servicio=${encodeURIComponent(servicio.nombre)}` +
+          `&trabajador=${encodeURIComponent(trabajador)}` +
+          `&precio=${encodeURIComponent(precio)}` +
+          `&fecha_fin=${encodeURIComponent(fechaMs)}` +
+          `&nota=${encodeURIComponent(nota)}` +
+          payload.query,
+        estadoPago: payload.estadoPago
+      };
+    }
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Registrando servicio manual...");
+    fetch(`${API_URL}?action=registrarServicioRealizadoManual${result.value.query}`)
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("No se pudo registrar", resp.error, "error");
+          return;
+        }
+
+        return Promise.all([
+          cargarIngresos({ silent: true }),
+          cargarLiquidaciones({ silent: true }),
+          cargarPendientesPago({ silent: true })
+        ]).then(() => {
+          SwalPremium.fire("Registrado", "El servicio ya cuenta para ingresos y liquidacion.", "success");
+        });
+      })
+      .catch(() => {
+        SwalPremium.fire("Error de red", "No se pudo registrar el servicio manual.", "error");
+      })
+      .finally(() => hideAppLoader());
+  });
+}
+
+function prepararRegistroManual() {
+  Promise.all([
+    serviciosData.length ? Promise.resolve(serviciosData) : cargarServicios({ silent: true }),
+    trabajadoresData.length ? Promise.resolve(trabajadoresData) : cargarTrabajadores({ silent: true })
+  ])
+    .then(() => abrirModalRegistroManual())
+    .catch(() => SwalPremium.fire("Error", "No se pudieron cargar los datos para el registro manual.", "error"));
 }
 
 function renderPaginacionIngresos(total, totalPaginas) {
@@ -2895,6 +3201,7 @@ function resetRenderTablaIngresos() {
 
 if (buscador) buscador.oninput = resetRenderTablaIngresos;
 if (filtroMetodoPago) filtroMetodoPago.onchange = resetRenderTablaIngresos;
+if (btnRegistroManual) btnRegistroManual.onclick = prepararRegistroManual;
 if (filtroIngresosTrabajador) filtroIngresosTrabajador.onchange = resetRenderTablaIngresos;
 if (filtroIngresosServicio) filtroIngresosServicio.onchange = resetRenderTablaIngresos;
 if (filtroIngresosFecha) filtroIngresosFecha.onchange = resetRenderTablaIngresos;
