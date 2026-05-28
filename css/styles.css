@@ -493,7 +493,7 @@ html.auth-checking body::after {
 }
 
 .history-actions {
-  width: min(100%, 760px);
+  width: min(100%, 980px);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -501,7 +501,7 @@ html.auth-checking body::after {
 }
 
 .section-heading > .history-actions {
-  width: min(100%, 760px);
+  width: min(100%, 980px);
 }
 
 .history-actions input {
@@ -528,6 +528,10 @@ html.auth-checking body::after {
 
 .pay-pending-button {
   background: linear-gradient(180deg, var(--warning), color-mix(in srgb, var(--warning) 78%, #000)) !important;
+}
+
+.manual-income-button {
+  background: linear-gradient(180deg, var(--success), color-mix(in srgb, var(--success) 76%, #000)) !important;
 }
 
 .income-filters {
@@ -2044,6 +2048,106 @@ button:active {
   color: var(--text-muted);
 }
 
+.income-service-cell {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.record-badge {
+  min-height: 22px;
+  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8a4b00;
+  background: #fff1d6;
+  border: 1px solid #ffc46b;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 820;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cancel-payment-fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.cancel-payment-fields label {
+  display: block;
+  margin: 0 0 5px;
+  color: var(--text-soft);
+  font-size: .78rem;
+  font-weight: 720;
+}
+
+.cancel-payment-fields .swal2-input,
+.cancel-payment-fields .swal2-textarea,
+.cancel-payment-fields .swal2-select {
+  margin: 0 !important;
+}
+
+.manual-service-popup {
+  width: min(760px, calc(100vw - 28px)) !important;
+  max-width: calc(100vw - 28px) !important;
+}
+
+.manual-service-popup .swal2-html-container {
+  margin: 14px 0 0 !important;
+  overflow: visible !important;
+}
+
+.manual-service-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  padding: 2px 14px 0;
+  text-align: left;
+}
+
+.manual-service-field {
+  min-width: 0;
+}
+
+.manual-service-field:has(> .mixed-payment-box.hidden) {
+  display: none;
+}
+
+.manual-service-wide {
+  grid-column: 1 / -1;
+}
+
+.manual-service-form label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--text-soft);
+  font-size: .78rem;
+  font-weight: 720;
+}
+
+.manual-service-form .swal2-input,
+.manual-service-form .swal2-textarea,
+.manual-service-form .swal2-select {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.manual-service-form .swal2-textarea {
+  min-height: 92px !important;
+  max-height: 130px !important;
+  resize: none !important;
+}
+
+.manual-service-form .mixed-payment-box {
+  margin-top: 0;
+}
+
 .mixed-payment-box {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2223,8 +2327,17 @@ button:active {
 
   .modal-plate-search,
   .modal-history-summary,
+  .manual-service-form,
   .mixed-payment-box {
     grid-template-columns: 1fr;
+  }
+
+  .manual-service-popup {
+    width: min(94vw, 520px) !important;
+  }
+
+  .manual-service-form {
+    padding-inline: 6px;
   }
 
   .finder-controls {
@@ -2265,5 +2378,23 @@ button:active {
 
   .bubble-board {
     grid-template-columns: 1fr;
+  }
+
+  .manual-service-popup {
+    width: calc(100vw - 18px) !important;
+  }
+
+  .manual-service-popup .swal2-title {
+    padding-inline: 26px !important;
+    font-size: 1.25rem !important;
+  }
+
+  .manual-service-form {
+    gap: 12px;
+    padding-inline: 0;
+  }
+
+  .manual-service-form .swal2-textarea {
+    min-height: 84px !important;
   }
 }
