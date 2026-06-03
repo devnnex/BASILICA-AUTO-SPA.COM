@@ -1106,7 +1106,7 @@ function imprimirRecibo(servicio) {
   </div>
 
   <div class="footer">
-    ¡GRACIAS POR SU VISITA!<br>
+    Â¡GRACIAS POR SU VISITA!<br>
     CONSERVE ESTE RECIBO
   </div>
 
@@ -1413,7 +1413,7 @@ if (placaHistorialInput) {
 
 
 
-/* ---------- Activación del buscador ---------- */
+/* ---------- ActivaciÃ³n del buscador ---------- */
 buscadorActivos.addEventListener("input", renderActivos);
 if (buscadorServicios) buscadorServicios.addEventListener("input", renderServicios);
 if (selectorServicios) selectorServicios.addEventListener("change", renderServicios);
@@ -1548,12 +1548,12 @@ function abrirModalAgendarServicio(servicio) {
         <input
           id="placaLavado"
           class="swal2-input"
-          placeholder="Placa del vehículo"
+          placeholder="Placa del vehÃ­culo"
           style="text-transform:uppercase"
         />
 
         <select id="trabajadorLavado" class="swal2-input">
-          <option value="">Asignar automáticamente</option>
+          <option value="">Asignar automÃ¡ticamente</option>
           <option disabled>Cargando trabajadores...</option>
         </select>
       </div>
@@ -1569,7 +1569,7 @@ function abrirModalAgendarServicio(servicio) {
           if (!select) return;
 
           // limpiar opciones
-          select.innerHTML = `<option value="">Asignar automáticamente</option>`;
+          select.innerHTML = `<option value="">Asignar automÃ¡ticamente</option>`;
 
           data
             .filter(esOperarioAsignable)
@@ -1592,7 +1592,7 @@ function abrirModalAgendarServicio(servicio) {
           const select = document.getElementById("trabajadorLavado");
           if (select) {
             select.innerHTML = `
-              <option value="">Asignar automáticamente</option>
+              <option value="">Asignar automÃ¡ticamente</option>
               <option disabled>Error al cargar trabajadores</option>
             `;
           }
@@ -1654,7 +1654,7 @@ function abrirModalAgendarServicio(servicio) {
         cargarIngresos({ silent: true });
       })
       .catch(() => {
-        SwalPremium.fire("Error", "Error de conexión", "error");
+        SwalPremium.fire("Error", "Error de conexiÃ³n", "error");
       })
       .finally(() => {
         hideAppLoader();
@@ -1714,8 +1714,8 @@ function editarServicio(servicio) {
    =============================== */
 function eliminarServicio(id) {
   SwalPremium.fire({
-    title: "¿Eliminar servicio?",
-    text: "Esta acción no se puede deshacer",
+    title: "Â¿Eliminar servicio?",
+    text: "Esta acciÃ³n no se puede deshacer",
     icon: "warning",
     showCancelButton: true,
     confirmButtonText: "Eliminar"
@@ -1965,7 +1965,7 @@ function editarTrabajador(t) {
       }
 
       if (correo && !correo.includes("@")) {
-        Swal.showValidationMessage("Correo inválido");
+        Swal.showValidationMessage("Correo invÃ¡lido");
         return false;
       }
 
@@ -2019,12 +2019,12 @@ function eliminarTrabajador(trabajador) {
     return SwalPremium.fire({
       icon: "warning",
       title: "No permitido",
-      text: "El trabajador está asignado a un lavado activo"
+      text: "El trabajador estÃ¡ asignado a un lavado activo"
     });
   }
 
   SwalPremium.fire({
-    title: "¿Eliminar trabajador?",
+    title: "Â¿Eliminar trabajador?",
     icon: "warning",
     showCancelButton: true,
     confirmButtonText: "Eliminar"
@@ -2180,7 +2180,7 @@ function confirmarLavado(id) {
   const tiempoActivo = inicio ? formatTiempoCorto(Date.now() - inicio) : "-";
 
 SwalPremium.fire({
-    title: "¿Confirmar lavado terminado?",
+    title: "Â¿Confirmar lavado terminado?",
     html: lavado ? `
       <div class="swal-summary">
         <span>Ingreso: <b>${formatCOP(ingreso)}</b></span>
@@ -2214,7 +2214,7 @@ SwalPremium.fire({
   }).then(r => {
     if (!r.isConfirmed) return;
 
-    // ⚡ Optimistic UI
+    // âš¡ Optimistic UI
     item.style.opacity = ".4";
     showAppLoader("Confirmando lavado...");
     const estadoPago = r.value.estadoPago;
@@ -2411,7 +2411,7 @@ document.getElementById("btnCrearServicio").onclick = () => {
       srvNombre.value = "";
       srvPrecio.value = "";
 
-      // 🔁 REFRESCAR SERVICIOS
+      // ðŸ” REFRESCAR SERVICIOS
       cargarServicios({ silent: true });
 
       // (opcional UX)
@@ -2477,7 +2477,7 @@ document.getElementById("btnCrearTrabajador").onclick = () => {
       if (trabRol) trabRol.value = "";
       if (trabPassword) trabPassword.value = "";
 
-      // 🔁 REFRESCAR TRABAJADORES
+      // ðŸ” REFRESCAR TRABAJADORES
       cargarTrabajadores({ silent: true });
 
       SwalPremium.fire({
@@ -2488,7 +2488,7 @@ document.getElementById("btnCrearTrabajador").onclick = () => {
       });
     })
     .catch(() => {
-      SwalPremium.fire("Error", "Error de conexión", "error");
+      SwalPremium.fire("Error", "Error de conexiÃ³n", "error");
     })
     .finally(() => {
       hideAppLoader();
@@ -2498,7 +2498,7 @@ document.getElementById("btnCrearTrabajador").onclick = () => {
 
 
 /* ===============================
-   NAVEGACIÓN SPA
+   NAVEGACIÃ“N SPA
    =============================== */
 document.querySelectorAll(".sidebar button").forEach(btn => {
   if (!btn.dataset.section) return;
@@ -2540,13 +2540,13 @@ let ingresosDetalle = [];
 let pendientesPagoData = [];
 
 /* ---------- UTILIDADES ---------- */
-// Convierte cualquier cosa a número seguro
+// Convierte cualquier cosa a nÃºmero seguro
 function parsePrecio(valor) {
   const n = Number(valor);
   return isNaN(n) ? 0 : n;
 }
 
-// Comprueba si dos fechas son el mismo día
+// Comprueba si dos fechas son el mismo dÃ­a
 function esMismoDia(fecha1, fecha2) {
   const f1 = new Date(fecha1);
   const f2 = new Date(fecha2);
@@ -2583,9 +2583,9 @@ function cargarIngresos() {
     .then(data => {
       // Guardar detalle para filtros y tabla
       ingresosDetalle = Array.isArray(data.detalle) ? data.detalle : [];
-      console.log("🛸 Datos ingresos cargados:", ingresosDetalle);
+      console.log("ðŸ›¸ Datos ingresos cargados:", ingresosDetalle);
 
-      // 🔹 Calcular KPIs
+      // ðŸ”¹ Calcular KPIs
       const hoy = new Date();
       const mes = hoy.getMonth();
       const anio = hoy.getFullYear();
@@ -2598,7 +2598,7 @@ function cargarIngresos() {
         const precio = parsePrecio(i.precio);
         const fecha = new Date(i.fecha);
 
-        if (!isNaN(fecha)) { // Solo fechas válidas
+        if (!isNaN(fecha)) { // Solo fechas vÃ¡lidas
           // Servicios e ingresos de hoy
           if (esMismoDia(fecha, hoy)) {
             serviciosHoy += 1;
@@ -2612,7 +2612,7 @@ function cargarIngresos() {
         }
       });
 
-      // 🔹 Mostrar KPIs en formato COP
+      // ðŸ”¹ Mostrar KPIs en formato COP
       kpiServicios.textContent = serviciosHoy;
       kpiHoy.textContent = ingresosHoy.toLocaleString("es-CO", { style: "currency", currency: "COP" });
       kpiMes.textContent = ingresosMes.toLocaleString("es-CO", { style: "currency", currency: "COP" });
@@ -2622,7 +2622,7 @@ function cargarIngresos() {
       renderCardsTrabajador();
       renderLiquidaciones();
     })
-    .catch(err => console.error("🛸 Error cargando ingresos:", err));
+    .catch(err => console.error("ðŸ›¸ Error cargando ingresos:", err));
 }
 
 /* ---------- RENDER TABLA INGRESOS ---------- */
@@ -3216,7 +3216,7 @@ if (btnPendientesPago) {
 /*
 document.addEventListener("DOMContentLoaded", () => {
   cargarIngresos();
-  // Asegúrate de que estas funciones existan en tu código
+  // AsegÃºrate de que estas funciones existan en tu cÃ³digo
   cargarActivos?.();
   cargarRecogidas?.();
   cargarServicios?.();
@@ -3262,13 +3262,13 @@ function renderRecogidas() {
     card.className = "card-recogida";
 
     card.innerHTML = `
-      <b>👤 ${r.nombre}</b>
-      <small>📞 ${r.telefono}</small>
+      <b>ðŸ‘¤ ${r.nombre}</b>
+      <small>ðŸ“ž ${r.telefono}</small>
 
       <div style="margin-top:6px">
-        <b>🏍️ Placa:</b> ${r.placa}<br>
-        <b>📅 Fecha:</b> ${r.fecha}<br>
-        <b>⏰ Hora:</b> ${r.hora}
+        <b>ðŸï¸ Placa:</b> ${r.placa}<br>
+        <b>ðŸ“… Fecha:</b> ${r.fecha}<br>
+        <b>â° Hora:</b> ${r.hora}
       </div>
 
       <span style="color:#facc15;margin:8px 0;display:block">
@@ -3279,11 +3279,11 @@ function renderRecogidas() {
     `;
 
     /* =====================================
-       EVENTO BOTÓN – SWEETALERT PREMIUM
+       EVENTO BOTÃ“N â€“ SWEETALERT PREMIUM
        ===================================== */
     card.querySelector(".btn-start").onclick = () => {
 
-      // 🔒 Seguridad: servicios cargados
+      // ðŸ”’ Seguridad: servicios cargados
       if (!serviciosData.length) {
         SwalPremium.fire("Error", "No hay servicios disponibles", "error");
         return;
@@ -3291,7 +3291,7 @@ function renderRecogidas() {
 
       SwalPremium.fire({
         title: "Seleccionar servicio",
-        text: "Este servicio será asignado a la recogida",
+        text: "Este servicio serÃ¡ asignado a la recogida",
         input: "select",
         inputOptions: serviciosData.reduce((acc, s) => {
           acc[s.nombre] = `${s.nombre} - $${s.precio}`;
@@ -3324,14 +3324,14 @@ function renderRecogidas() {
                 `
               });
 
-              // 🔄 REFRESCOS CLAVE
+              // ðŸ”„ REFRESCOS CLAVE
               cargarRecogidas({ silent: true });
               cargarActivos({ silent: true });
               cargarTrabajadores({ silent: true });
             }
           })
           .catch(() => {
-            SwalPremium.fire("Error", "Error de conexión", "error");
+            SwalPremium.fire("Error", "Error de conexiÃ³n", "error");
           })
           .finally(() => {
             hideAppLoader();
@@ -3380,7 +3380,7 @@ if (buscadorLiquidaciones) {
 function renderFiltroTrabajadores() {
   if (!filtroTrabajador) return;
 
-  // 🧠 Guardar selección actual
+  // ðŸ§  Guardar selecciÃ³n actual
   const seleccionado = filtroTrabajador.value;
 
   filtroTrabajador.innerHTML =
@@ -3394,7 +3394,7 @@ function renderFiltroTrabajadores() {
     `;
   });
 
-  // 🔁 Restaurar selección si aún existe
+  // ðŸ” Restaurar selecciÃ³n si aÃºn existe
   if (
     seleccionado &&
     trabajadoresLiquidables.some(t => t.nombre === seleccionado)
@@ -3450,7 +3450,7 @@ function liquidacionAplica(liquidacion, diasFiltro) {
 
 
 /* ===============================
-   CÁLCULO DE INGRESOS
+   CÃLCULO DE INGRESOS
 =============================== */
 function calcularIngresosPorTrabajador(
   detalle,
@@ -3461,17 +3461,17 @@ function calcularIngresosPorTrabajador(
 
   let data = [...detalle];
 
-  // 1️⃣ Filtro fecha
+  // 1ï¸âƒ£ Filtro fecha
   if (diasFiltro) {
     data = filtrarPorFecha(data, diasFiltro);
   }
 
-  // 2️⃣ Filtro trabajador
+  // 2ï¸âƒ£ Filtro trabajador
   if (trabajadorFiltro) {
     data = data.filter(i => i.trabajador === trabajadorFiltro);
   }
 
-  // 3️⃣ Agrupación
+  // 3ï¸âƒ£ AgrupaciÃ³n
   return data.reduce((acc, i) => {
     if (!acc[i.trabajador]) {
       acc[i.trabajador] = {
@@ -3499,7 +3499,7 @@ function renderCardsTrabajador() {
   const diasSeleccionados = filtroFecha.value;
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
-  // 1️⃣ Filtrar trabajadores según selección
+  // 1ï¸âƒ£ Filtrar trabajadores segÃºn selecciÃ³n
   let trabajadoresAFiltrar = trabajadoresData.filter(esOperarioLiquidable);
   if (trabajadorSeleccionado) {
     trabajadoresAFiltrar = trabajadoresAFiltrar.filter(
@@ -3590,32 +3590,15 @@ function renderCardsTrabajador() {
       </div>
     `;
 
-    // 5️⃣ Click → liquidar SOLO lo nuevo
+    // 5ï¸âƒ£ Click â†’ liquidar SOLO lo nuevo
     card.onclick = () => {
-      const hoy = new Date();
-
-      if (liquidacion?.fecha && liquidacion?.periodo) {
-        const diffDias = Math.floor(
-          (hoy - new Date(liquidacion.fecha)) / (1000 * 60 * 60 * 24)
-        );
-
-        if (diffDias < liquidacion.periodo) {
-          SwalPremium.fire(
-            "No permitido",
-            `Aún no ha pasado el periodo de alarma (${liquidacion.periodo} días).`,
-            "warning"
-          );
-          return;
-        }
-      }
-
       abrirModalLiquidacion({
-  trabajador: trabajador.nombre,
-  correo: trabajador.correo,
-  total,
-  servicios,
-  id: trabajador.id
-});
+        trabajador: trabajador.nombre,
+        correo: trabajador.correo,
+        total,
+        servicios,
+        id: trabajador.id
+      });
 
     };
 
@@ -3648,7 +3631,7 @@ function buildEmailNominaData({ trabajador, total, servicios, liquidacion }) {
           valor: liquidacion.valor.toLocaleString("es-CO"),
           fecha: formatoFechaBonita(liquidacion.fecha),
           periodo: liquidacion.periodo
-            ? `(Periodo ${liquidacion.periodo} días)`
+            ? `(Periodo ${liquidacion.periodo} dÃ­as)`
             : ""
         }
       : null
@@ -3705,7 +3688,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
                 <b>${formatoFechaBonita(liquidacion.fecha)}</b>
               </p>`
             : `<p style="opacity:.8;font-size:.9rem;">
-                Este trabajador aún no ha sido liquidado
+                Este trabajador aÃºn no ha sido liquidado
               </p>`
         }
 
@@ -3733,7 +3716,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
         document.getElementById("porcentajeLiquidacion").value
       );
       if (!porcentaje || porcentaje <= 0 || porcentaje > 100) {
-        Swal.showValidationMessage("Porcentaje inválido");
+        Swal.showValidationMessage("Porcentaje invÃ¡lido");
         return false;
       }
       return { porcentaje };
@@ -3746,22 +3729,9 @@ function abrirModalLiquidacion(resumenTrabajador) {
       const { porcentaje } = result.value;
       const hoy = new Date();
 
-      const ultimaFecha = liquidacion.fecha || null;
-      const diasAlarma = liquidacion.periodo || 7;
-
-      if (ultimaFecha) {
-        const diffDias = Math.floor(
-          (hoy - new Date(ultimaFecha)) / (1000 * 60 * 60 * 24)
-        );
-        if (diffDias < diasAlarma) {
-          SwalPremium.fire(
-            "No permitido",
-            `Aún no ha pasado el periodo mínimo (${diasAlarma} días).`,
-            "warning"
-          );
-          return;
-        }
-      }
+      const tipoLiquidacion = liquidacion.periodo
+        ? frecuenciaTexto(liquidacion.periodo)
+        : "libre";
 
       const valorLiquidado = Math.round(
         (resumenTrabajador.total * porcentaje) / 100
@@ -3787,7 +3757,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
               ultima_liquidacion_titulo: "Liquidacion realizada",
               ultima_liquidacion_valor: "$" + valorLiquidado.toLocaleString("es-CO"),
               ultima_liquidacion_fecha: formatoFechaBonita(hoy),
-              ultima_liquidacion_periodo: frecuenciaTexto(diasAlarma),
+              ultima_liquidacion_periodo: tipoLiquidacion,
               anio: hoy.getFullYear()
             };
 
@@ -3796,7 +3766,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
 
           SwalPremium.fire(
             "Liquidado",
-            `Liquidacion ${frecuenciaTexto(diasAlarma)} registrada correctamente.`,
+            `Liquidacion ${tipoLiquidacion} registrada correctamente.`,
             "success"
           );
         })
@@ -3829,7 +3799,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
 
 
 /* ===============================
-  GUARDAR LA LIQUIDACIÓN
+  GUARDAR LA LIQUIDACIÃ“N
 =============================== */
 function guardarLiquidacion(trabajador, valor) {
   return fetch(
@@ -3902,7 +3872,7 @@ function parseFechaSegura(fecha) {
     return new Date(anio, mes - 1, dia);
   }
 
-  // Intentar parsear cualquier otro string válido (ej: YYYY-MM-DD)
+  // Intentar parsear cualquier otro string vÃ¡lido (ej: YYYY-MM-DD)
   const d = new Date(fecha);
   return isNaN(d) ? null : d;
 }
@@ -4106,7 +4076,7 @@ function renderResumenIngresos() {
 
 
 ///CONFIGURACION DE ESTILOS GLOBALES PARA EL SWEETALERT
-// 🔹 Configuración global para todos los Swal
+// ðŸ”¹ ConfiguraciÃ³n global para todos los Swal
 const SwalPremium = Swal.mixin({
   customClass: {
     popup: 'swal-glass-popup'
@@ -4240,7 +4210,7 @@ function renderBurbujas(resumen) {
 
   if (!trabajadores.length) {
     tableroBurbujas.innerHTML =
-      `<p style="opacity:.6">No hay datos para este período</p>`;
+      `<p style="opacity:.6">No hay datos para este perÃ­odo</p>`;
     return;
   }
 
