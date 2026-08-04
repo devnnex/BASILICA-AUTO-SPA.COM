@@ -268,9 +268,8 @@ function validarSesionGuardada() {
       return true;
     })
     .catch(() => {
-      clearSession();
-      setLoggedOutUI();
-      return false;
+      iniciarDashboardConSesion(session);
+      return true;
     });
 }
 
@@ -1561,9 +1560,7 @@ function abrirModalAgendarServicio(servicio) {
     confirmButtonText: "Iniciar lavado",
     cancelButtonText: "Cancelar",
     didOpen: () => {
-      // Cuando el modal ya esta abierto cargamos trabajadores
-      fetch(`${API_URL}?action=trabajadores`)
-        .then(res => res.json())
+      obtenerTrabajadoresParaAsignacion()
         .then(data => {
           const select = document.getElementById("trabajadorLavado");
           if (!select) return;
@@ -4407,6 +4404,312 @@ function inicializarDashboard() {
 
 configurarLogin();
 validarSesionGuardada();
+
+/* ===============================
+   CARGA CONSOLIDADA Y SINCRONIZADA
+   =============================== */
+const solicitudesEnCurso = new Map();
+let ultimaCargaTrabajadores = 0;
+let refrescoActivosEnCurso = false;
+let refrescoRecogidasEnCurso = false;
+
+function apiJson(action, parametros = {}) {
+  const query = new URLSearchParams({ action, ...parametros });
+  const key = query.toString();
+
+  if (solicitudesEnCurso.has(key)) return solicitudesEnCurso.get(key);
+
+  const solicitud = fetch(`${API_URL}?${query.toString()}`)
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .finally(() => solicitudesEnCurso.delete(key));
+
+  solicitudesEnCurso.set(key, solicitud);
+  return solicitud;
+}
+
+function sincronizarGastosActivos(lavados) {
+  const idsActivos = new Set(lavados.map(lavado => String(lavado.id)));
+
+  for (const lavado of lavados) {
+    const id = String(lavado.id);
+    if (!Array.isArray(lavado.gastos)) continue;
+    gastosPorLavado.set(id, lavado.gastos);
+    gastosCargados.add(id);
+    gastosCargando.delete(id);
+  }
+
+  for (const id of [...gastosPorLavado.keys()]) {
+    if (!idsActivos.has(id)) {
+      gastosPorLavado.delete(id);
+      gastosCargados.delete(id);
+      gastosCargando.delete(id);
+    }
+  }
+}
+
+function aplicarActivos(lavados) {
+  activosData = Array.isArray(lavados) ? lavados : [];
+  sincronizarGastosActivos(activosData);
+  renderActivos();
+  renderResumenActivos();
+  return activosData;
+}
+
+function aplicarServicios(servicios) {
+  serviciosData = Array.isArray(servicios) ? servicios : [];
+  renderFiltroServicios();
+  renderServicios();
+  return serviciosData;
+}
+
+function aplicarTrabajadores(trabajadores) {
+  trabajadoresData = Array.isArray(trabajadores) ? trabajadores : [];
+  ultimaCargaTrabajadores = Date.now();
+  renderFiltroTablaTrabajadores();
+  renderTrabajadores();
+  renderFiltroTrabajadores();
+  renderFiltroLiquidaciones();
+  renderLiquidaciones();
+  return trabajadoresData;
+}
+
+function aplicarIngresos(ingresos) {
+  ingresosDetalle = Array.isArray(ingresos?.detalle) ? ingresos.detalle : [];
+  if (placaHistorialInput?.value) {
+    renderHistorialPlaca(placaHistorialInput.value, getHistorialLocalPlaca(placaHistorialInput.value));
+  }
+  renderFiltrosIngresos();
+  renderResumenIngresos();
+  renderTablaIngresos();
+  renderCardsTrabajador();
+  renderLiquidaciones();
+  renderGanancias();
+  return ingresosDetalle;
+}
+
+function aplicarLiquidaciones(data) {
+  liquidacionesDetalle = Array.isArray(data?.detalle) ? data.detalle : [];
+  liquidacionesData = {};
+
+  Object.entries(data?.resumen || {}).forEach(([id, liquidacion]) => {
+    const fecha = toDateSafe(liquidacion.fecha);
+    if (!fecha) return;
+    liquidacionesData[id] = {
+      valor: Number(liquidacion.valor) || 0,
+      fecha,
+      trabajador: liquidacion.trabajador || ""
+    };
+  });
+
+  renderCardsTrabajador();
+  renderLiquidaciones();
+  return liquidacionesData;
+}
+
+function aplicarRecogidas(recogidas) {
+  recogidasData = Array.isArray(recogidas) ? recogidas : [];
+  renderRecogidas();
+  return recogidasData;
+}
+
+function cargarActivos(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) showAppLoader("Cargando servicios activos...");
+
+  return apiJson("activos")
+    .then(aplicarActivos)
+    .catch(error => {
+      console.error("Error activos:", error);
+      if (!activosData.length) lista.innerHTML = "<p>Error cargando lavados</p>";
+      return activosData;
+    })
+    .finally(() => {
+      if (!silent) hideAppLoader();
+    });
+}
+
+function cargarServicios(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) setSectionLoading("servicios", true, "Cargando servicios...");
+
+  return apiJson("servicios")
+    .then(aplicarServicios)
+    .catch(error => {
+      console.error("Error servicios:", error);
+      return serviciosData;
+    })
+    .finally(() => {
+      if (!silent) setSectionLoading("servicios", false);
+    });
+}
+
+function cargarTrabajadores(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) {
+    setSectionLoading("trabajadores", true, "Cargando trabajadores...");
+    setSectionLoading("liquidaciones", true, "Actualizando liquidaciones...");
+  }
+
+  return apiJson("trabajadores")
+    .then(aplicarTrabajadores)
+    .catch(error => {
+      console.error("Error trabajadores:", error);
+      return trabajadoresData;
+    })
+    .finally(() => {
+      if (!silent) {
+        setSectionLoading("trabajadores", false);
+        setSectionLoading("liquidaciones", false);
+      }
+    });
+}
+
+function obtenerTrabajadoresParaAsignacion() {
+  if (trabajadoresData.length && Date.now() - ultimaCargaTrabajadores < 30000) {
+    return Promise.resolve(trabajadoresData);
+  }
+  return cargarTrabajadores({ silent: true });
+}
+
+function cargarIngresos(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) {
+    setSectionLoading("ingresos", true, "Cargando servicios realizados...");
+    setSectionLoading("ganancias", true, "Calculando inteligencia...");
+    setSectionLoading("liquidaciones", true, "Actualizando liquidaciones...");
+  }
+
+  return apiJson("ingresos")
+    .then(aplicarIngresos)
+    .catch(error => {
+      console.error("Error cargando ingresos:", error);
+      return ingresosDetalle;
+    })
+    .finally(() => {
+      if (!silent) {
+        setSectionLoading("ingresos", false);
+        setSectionLoading("ganancias", false);
+        setSectionLoading("liquidaciones", false);
+      }
+    });
+}
+
+function cargarLiquidaciones(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) setSectionLoading("liquidaciones", true, "Cargando liquidaciones...");
+  return apiJson("liquidaciones")
+    .then(aplicarLiquidaciones)
+    .catch(error => {
+      console.error("Error liquidaciones:", error);
+      return liquidacionesData;
+    })
+    .finally(() => {
+      if (!silent) setSectionLoading("liquidaciones", false);
+    });
+}
+
+function cargarRecogidas(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) setSectionLoading("recogidas", true, "Cargando recogidas...");
+  return apiJson("recogidas")
+    .then(aplicarRecogidas)
+    .catch(error => {
+      console.error("Error recogidas:", error);
+      if (!recogidasData.length) listaRecogidas.innerHTML = "<p>Error cargando recogidas</p>";
+      return recogidasData;
+    })
+    .finally(() => {
+      if (!silent) setSectionLoading("recogidas", false);
+    });
+}
+
+function cargarPendientesPago(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) showAppLoader("Cargando pendientes por pagar...");
+  return apiJson("pendientesPago")
+    .then(data => {
+      pendientesPagoData = Array.isArray(data) ? data : [];
+      return pendientesPagoData;
+    })
+    .catch(error => {
+      console.error("Error pendientes pago:", error);
+      return pendientesPagoData;
+    })
+    .finally(() => {
+      if (!silent) hideAppLoader();
+    });
+}
+
+function cargarBootstrap() {
+  showAppLoader("Cargando información...");
+  return apiJson("bootstrap")
+    .then(data => {
+      if (!data?.ok) throw new Error(data?.error || "Respuesta de inicio inválida");
+      aplicarServicios(data.servicios);
+      aplicarTrabajadores(data.trabajadores);
+      aplicarActivos(data.activos);
+      aplicarIngresos(data.ingresos);
+      aplicarLiquidaciones(data.liquidaciones);
+      aplicarRecogidas(data.recogidas);
+      pendientesPagoData = Array.isArray(data.pendientesPago) ? data.pendientesPago : [];
+      return data;
+    })
+    .finally(() => hideAppLoader());
+}
+
+function refrescarActivosSinSolapamiento() {
+  if (document.hidden || refrescoActivosEnCurso) return;
+  refrescoActivosEnCurso = true;
+  cargarActivos({ silent: true }).finally(() => {
+    refrescoActivosEnCurso = false;
+  });
+}
+
+function refrescarRecogidasSinSolapamiento() {
+  if (document.hidden || refrescoRecogidasEnCurso) return;
+  refrescoRecogidasEnCurso = true;
+  cargarRecogidas({ silent: true }).finally(() => {
+    refrescoRecogidasEnCurso = false;
+  });
+}
+
+function inicializarDashboard() {
+  if (dashboardInicializado) {
+    cargarBootstrap().catch(error => console.error("No se pudo actualizar el inicio:", error));
+    return;
+  }
+
+  dashboardInicializado = true;
+  renderHistorialPlaca("");
+  renderCardsTrabajador();
+
+  cargarBootstrap().catch(error => {
+    console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
+    return Promise.all([
+      cargarActivos(),
+      cargarIngresos(),
+      cargarServicios(),
+      cargarTrabajadores(),
+      cargarLiquidaciones({ silent: true }),
+      cargarRecogidas(),
+      cargarPendientesPago({ silent: true })
+    ]);
+  });
+
+  setInterval(refrescarActivosSinSolapamiento, 10000);
+  setInterval(refrescarRecogidasSinSolapamiento, 30000);
+  setInterval(updateElapsedTimers, 1000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      refrescarActivosSinSolapamiento();
+      refrescarRecogidasSinSolapamiento();
+    }
+  });
+}
 
 
 
