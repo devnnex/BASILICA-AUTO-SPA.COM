@@ -249,28 +249,8 @@ function validarSesionGuardada() {
   }
 
   currentSession = session;
-  return fetch(`${API_URL}?action=validarSesion&sessionToken=${encodeURIComponent(session.token)}`)
-    .then(res => res.json())
-    .then(resp => {
-      if (!resp.ok) {
-        clearSession();
-        setLoggedOutUI();
-        return false;
-      }
-
-      iniciarDashboardConSesion({
-        token: session.token,
-        nombre: resp.user?.nombre || session.nombre,
-        correo: resp.user?.correo || session.correo,
-        rol: resp.user?.rol || session.rol,
-        expiresAt: Number(resp.user?.expira || session.expiresAt)
-      });
-      return true;
-    })
-    .catch(() => {
-      iniciarDashboardConSesion(session);
-      return true;
-    });
+  iniciarDashboardConSesion(session);
+  return Promise.resolve(true);
 }
 
 /* ===============================
@@ -341,6 +321,7 @@ let trabajadoresData = [];
 =============================== */
 let liquidacionesData = {};
 let liquidacionesDetalle = [];
+let liquidacionesExcluidas = new Set();
 
 
 //Variables globales de los graficos de ganancias/ingresos
@@ -3178,12 +3159,22 @@ function abrirModalPagoEfectuado(id) {
           return;
         }
 
-        return Promise.all([
-          cargarPendientesPago({ silent: true }),
-          cargarIngresos({ silent: true })
-        ]).then(() => {
-          SwalPremium.fire("Pago registrado", "", "success");
-        });
+        pendientesPagoData = pendientesPagoData.filter(pendiente => String(pendiente.id) !== String(id));
+        const ingreso = ingresosDetalle.find(item => String(item.id) === String(id));
+        if (ingreso) {
+          ingreso.estado_pago = "pagado";
+          ingreso.metodo_pago = resp.metodo_pago;
+          ingreso.pagos = Array.isArray(resp.pagos) ? resp.pagos : [];
+          ingreso.fecha_pago = resp.fecha_pago;
+          renderResumenIngresos();
+          renderTablaIngresos();
+          renderCardsTrabajador();
+          renderLiquidaciones();
+          renderGanancias();
+        }
+        cargarPendientesPago({ silent: true }).catch(console.error);
+        cargarIngresos({ silent: true }).catch(console.error);
+        SwalPremium.fire("Pago registrado", "", "success");
       })
       .catch(() => SwalPremium.fire("Error", "No se pudo registrar el pago.", "error"))
       .finally(() => hideAppLoader());
@@ -3497,7 +3488,9 @@ function renderCardsTrabajador() {
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
   // 1ï¸âƒ£ Filtrar trabajadores segÃºn selecciÃ³n
-  let trabajadoresAFiltrar = trabajadoresData.filter(esOperarioLiquidable);
+  let trabajadoresAFiltrar = trabajadoresData.filter(trabajador =>
+    esOperarioLiquidable(trabajador) && !liquidacionesExcluidas.has(String(trabajador.id))
+  );
   if (trabajadorSeleccionado) {
     trabajadoresAFiltrar = trabajadoresAFiltrar.filter(
       t => t.nombre === trabajadorSeleccionado
@@ -3738,13 +3731,18 @@ function abrirModalLiquidacion(resumenTrabajador) {
       guardarLiquidacion(resumenTrabajador.trabajador, valorLiquidado)
         .then(resp => {
           if (resp?.error) throw new Error(resp.error);
-          return Promise.all([
-            cargarLiquidaciones({ silent: true }),
-            cargarTrabajadores({ silent: true }),
-            cargarIngresos({ silent: true })
-          ]);
-        })
-        .then(() => {
+          const liquidacionRegistrada = resp.liquidacion;
+          if (liquidacionRegistrada?.trabajadorId) {
+            liquidacionesData[liquidacionRegistrada.trabajadorId] = {
+              valor: Number(liquidacionRegistrada.valor) || 0,
+              fecha: new Date(liquidacionRegistrada.fecha),
+              trabajador: liquidacionRegistrada.trabajador || ""
+            };
+            renderCardsTrabajador();
+            renderLiquidaciones();
+          }
+          cargarLiquidaciones({ silent: true }).catch(console.error);
+
           if (resumenTrabajador.correo) {
             const emailData = {
               email: resumenTrabajador.correo,
@@ -3891,7 +3889,9 @@ function renderLiquidaciones() {
   const trabajadorResumenFiltro = filtroTrabajador?.value || "";
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
 
-  let trabajadoresFiltrados = trabajadoresData.filter(esOperarioLiquidable);
+  let trabajadoresFiltrados = trabajadoresData.filter(trabajador =>
+    esOperarioLiquidable(trabajador) && !liquidacionesExcluidas.has(String(trabajador.id))
+  );
   if (trabajadorResumenFiltro) {
     trabajadoresFiltrados = trabajadoresFiltrados.filter(t => t.nombre === trabajadorResumenFiltro);
   }
@@ -3904,13 +3904,11 @@ function renderLiquidaciones() {
     );
   }
 
-  tablaLiquidaciones.innerHTML = "";
-
-  trabajadoresFiltrados.forEach(t => {
+  const filas = trabajadoresFiltrados.map(t => {
     const liquidacion = liquidacionesData[t.id] || null;
 
     // Aplicar filtro de fecha
-    if (liquidacion && liquidacion.fecha && !fechaDentroDeFiltro(liquidacion.fecha, fechaFiltro)) return;
+    if (liquidacion && liquidacion.fecha && !fechaDentroDeFiltro(liquidacion.fecha, fechaFiltro)) return "";
 
     // Calcular total generado desde ingresosDetalle
     const ingresosTrabajador = ingresosDetalle
@@ -3929,20 +3927,62 @@ function renderLiquidaciones() {
       porcentajeReal = ((liquidacion.valor / ingresosTrabajador) * 100).toFixed(2);
     }
 
-    tablaLiquidaciones.innerHTML += `
+    return `
       <tr>
-        <td>${t.nombre}</td>
-        <td>${t.estado}</td>
+        <td>${escapeHTML(t.nombre)}</td>
+        <td>${escapeHTML(t.estado)}</td>
         <td>${formatCOP(ingresosTrabajador)}</td>
         <td>${valorFormateado} (${porcentajeReal !== "-" ? porcentajeReal + "%" : "-"})</td>
         <td>${fechaFormateada}</td>
+        <td><button type="button" class="delete delete-liquidacion" data-trabajador-id="${escapeHTML(t.id)}">Eliminar</button></td>
       </tr>
     `;
   });
 
-  if (!tablaLiquidaciones.innerHTML) {
-    tablaLiquidaciones.innerHTML = `<tr><td colspan="5">No hay liquidaciones para este filtro</td></tr>`;
+  const contenido = filas.filter(Boolean).join("");
+  if (!contenido) {
+    tablaLiquidaciones.innerHTML = `<tr><td colspan="6">No hay liquidaciones para este filtro</td></tr>`;
+    return;
   }
+
+  tablaLiquidaciones.innerHTML = contenido;
+  tablaLiquidaciones.querySelectorAll(".delete-liquidacion").forEach(boton => {
+    boton.addEventListener("click", () => {
+      const trabajador = trabajadoresData.find(item => String(item.id) === boton.dataset.trabajadorId);
+      if (trabajador) eliminarLiquidacion(trabajador);
+    });
+  });
+}
+
+function eliminarLiquidacion(trabajador) {
+  SwalPremium.fire({
+    title: "¿Eliminar de liquidaciones?",
+    text: `${trabajador.nombre} dejará de aparecer en este módulo. Sus demás datos se conservarán.`,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Eliminar",
+    cancelButtonText: "Cancelar"
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Eliminando liquidación...");
+    fetch(`${API_URL}?action=eliminarLiquidacion&trabajador_id=${encodeURIComponent(trabajador.id)}`)
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) throw new Error(resp.error);
+        liquidacionesExcluidas.add(String(trabajador.id));
+        delete liquidacionesData[trabajador.id];
+        renderLiquidaciones();
+        renderCardsTrabajador();
+        cargarLiquidaciones({ silent: true }).catch(console.error);
+        SwalPremium.fire("Eliminado", "El trabajador fue retirado de liquidaciones.", "success");
+      })
+      .catch(error => {
+        console.error(error);
+        SwalPremium.fire("Error", error.message || "No se pudo eliminar la liquidación.", "error");
+      })
+      .finally(() => hideAppLoader());
+  });
 }
 
 /* ===============================
@@ -4492,6 +4532,7 @@ function aplicarIngresos(ingresos) {
 
 function aplicarLiquidaciones(data) {
   liquidacionesDetalle = Array.isArray(data?.detalle) ? data.detalle : [];
+  liquidacionesExcluidas = new Set((data?.excluidos || []).map(id => String(id)));
   liquidacionesData = {};
 
   Object.entries(data?.resumen || {}).forEach(([id, liquidacion]) => {
@@ -4647,6 +4688,11 @@ function cargarBootstrap() {
   showAppLoader("Cargando información...");
   return apiJson("bootstrap")
     .then(data => {
+      if (data?.auth === false) {
+        const error = new Error(data.error || "Sesión expirada");
+        error.authFailed = true;
+        throw error;
+      }
       if (!data?.ok) throw new Error(data?.error || "Respuesta de inicio inválida");
       aplicarServicios(data.servicios);
       aplicarTrabajadores(data.trabajadores);
@@ -4687,6 +4733,10 @@ function inicializarDashboard() {
   renderCardsTrabajador();
 
   cargarBootstrap().catch(error => {
+    if (error.authFailed) {
+      cerrarSesion({ silent: true, expired: true });
+      return;
+    }
     console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
     return Promise.all([
       cargarActivos(),

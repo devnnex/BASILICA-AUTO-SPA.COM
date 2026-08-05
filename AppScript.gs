@@ -15,6 +15,7 @@ const COMPLETADOS_HEADERS = [
 const SESIONES_HEADERS = ["Token", "Correo", "Nombre", "Rol", "Creado", "Expira", "Activo"];
 const PAGOS_HEADERS = ["ID", "Trabajador", "Valor", "Fecha", "Tipo"];
 const ADICIONALES_HEADERS = ["ID", "Lavado_ID", "Nombre", "Precio", "Fecha", "Activo"];
+const LIQUIDACIONES_EXCLUIDAS_HEADERS = ["Trabajador_ID", "Trabajador", "Fecha", "Eliminado_Por"];
 
 function doGet(e) {
   const action = e.parameter.action;
@@ -49,6 +50,7 @@ function doGet(e) {
     case "iniciarRecogida": return iniciarRecogida(e);
     case "liquidarTrabajador": return liquidarTrabajador(e);
     case "liquidaciones": return getLiquidaciones();
+    case "eliminarLiquidacion": return eliminarLiquidacion(e);
     case "verificarCorreo": return verificarCorreo(e);
     case "login": return login(e);
     case "validarSesion": return validarSesion(e);
@@ -101,8 +103,8 @@ function esAccionPublica(action) {
   ].indexOf(action) !== -1;
 }
 
-function getOrCreateSheet(nombre, headers) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+function getOrCreateSheet(nombre, headers, spreadsheet) {
+  const ss = spreadsheet || SpreadsheetApp.openById(SPREADSHEET_ID);
   let sh = ss.getSheetByName(nombre);
   if (!sh) sh = ss.insertSheet(nombre);
 
@@ -111,9 +113,15 @@ function getOrCreateSheet(nombre, headers) {
       sh.appendRow(headers);
     } else {
       const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), headers.length)).getValues()[0];
+      const nextHeaders = current.slice(0, headers.length);
+      let changed = false;
       headers.forEach((header, i) => {
-        if (!current[i]) sh.getRange(1, i + 1).setValue(header);
+        if (!nextHeaders[i]) {
+          nextHeaders[i] = header;
+          changed = true;
+        }
       });
+      if (changed) sh.getRange(1, 1, 1, headers.length).setValues([nextHeaders]);
     }
   }
 
@@ -273,18 +281,28 @@ function crearTokenSesion() {
   return Utilities.getUuid() + "-" + Date.now();
 }
 
-function eliminarSesionesPorCorreo(correo) {
+function eliminarFilasPorIndices(hoja, filas) {
+  while (filas.length) {
+    const ultimaFila = filas.pop();
+    let primeraFila = ultimaFila;
+    while (filas.length && filas[filas.length - 1] === primeraFila - 1) {
+      primeraFila = filas.pop();
+    }
+    hoja.deleteRows(primeraFila, ultimaFila - primeraFila + 1);
+  }
+}
+
+function eliminarSesionesPorCorreo(correo, spreadsheet) {
   const correoNormalizado = normalizarCorreo(correo);
   if (!correoNormalizado) return;
 
-  const sh = getOrCreateSheet("Sesiones", SESIONES_HEADERS);
+  const sh = getOrCreateSheet("Sesiones", SESIONES_HEADERS, spreadsheet);
   const data = sh.getDataRange().getValues();
-
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (normalizarCorreo(data[i][1]) === correoNormalizado) {
-      sh.deleteRow(i + 1);
-    }
+  const filas = [];
+  for (let i = 1; i < data.length; i++) {
+    if (normalizarCorreo(data[i][1]) === correoNormalizado) filas.push(i + 1);
   }
+  eliminarFilasPorIndices(sh, filas);
 }
 
 function eliminarSesionPorToken(token) {
@@ -508,8 +526,8 @@ function confirmarLavado(e) {
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const activos = ss.getSheetByName("Lavados_Activos");
-  const completados = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
-  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+  const completados = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS, ss);
+  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
   const data = activos.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -583,7 +601,8 @@ function registrarServicioRealizadoManual(e) {
     return output({ error: "Datos incompletos para registrar el servicio manual" });
   }
 
-  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
   const workers = trabajadores.getDataRange().getValues();
   let trabajadorValido = false;
 
@@ -606,7 +625,7 @@ function registrarServicioRealizadoManual(e) {
   const pago1 = pagosInfo.pagos[0] || {};
   const pago2 = pagosInfo.pagos[1] || {};
 
-  getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS).appendRow([
+  getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS, ss).appendRow([
     id,
     placa,
     servicio,
@@ -634,12 +653,12 @@ function registrarServicioRealizadoManual(e) {
 function eliminarFilasPorLavado(hoja, columnaLavado, lavadoId) {
   if (!hoja || hoja.getLastRow() < 2) return;
   const data = hoja.getDataRange().getValues();
-
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][columnaLavado - 1]) === String(lavadoId)) {
-      hoja.deleteRow(i + 1);
-    }
+  const filas = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][columnaLavado - 1]) === String(lavadoId)) filas.push(i + 1);
   }
+
+  eliminarFilasPorIndices(hoja, filas);
 }
 
 function eliminarLavadoActivo(e) {
@@ -652,8 +671,8 @@ function eliminarLavadoActivo(e) {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const activos = ss.getSheetByName("Lavados_Activos");
-    const completados = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
-    const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+    const completados = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS, ss);
+    const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
     const data = activos.getDataRange().getValues();
     const pagoCancelacion = Number(e.parameter.pago_cancelacion || 0);
     const motivoCancelacion = String(e.parameter.motivo_cancelacion || "").trim();
@@ -850,7 +869,7 @@ function reasignarTrabajador(e) {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const activos = ss.getSheetByName("Lavados_Activos");
-    const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+    const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
     const activosData = activos.getDataRange().getValues();
     const workers = trabajadores.getDataRange().getValues();
     let activoRow = null;
@@ -903,7 +922,7 @@ function agregarAdicionalLavado(e) {
     if (String(data[i][0]) === String(lavadoId)) {
       const precioActual = Number(data[i][3]) || 0;
       activos.getRange(i + 1, 4).setValue(precioActual + precio);
-      getOrCreateSheet("Lavado_Adicionales", ADICIONALES_HEADERS)
+      getOrCreateSheet("Lavado_Adicionales", ADICIONALES_HEADERS, ss)
         .appendRow([Date.now(), lavadoId, nombre, precio, new Date(), "activo"]);
       return output({ ok: true, precio: precioActual + precio, adicional: { nombre, precio } });
     }
@@ -916,29 +935,37 @@ function marcarPagoEfectuado(e) {
   const id = e.parameter.id;
   if (!id) return output({ error: "ID requerido" });
 
-  const sh = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
-  const data = sh.getDataRange().getValues();
-  const fechaPago = new Date();
+  const lock = tomarCandadoOperacion();
+  if (!lock) return output({ error: "Sistema ocupado, intenta de nuevo" });
 
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
+  try {
+    const sh = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
+    const data = sh.getDataRange().getValues();
+    const fechaPago = new Date();
+
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) !== String(id)) continue;
       const precio = Number(data[i][3]) || 0;
       const pagosInfo = getPagosDesdeParametros(e, precio, "pagado");
       if (pagosInfo.error) return output({ error: pagosInfo.error });
       const pago1 = pagosInfo.pagos[0] || {};
       const pago2 = pagosInfo.pagos[1] || {};
-      sh.getRange(i + 1, 9).setValue(pagosInfo.metodo);
-      sh.getRange(i + 1, 10).setValue("pagado");
-      sh.getRange(i + 1, 11).setValue(fechaPago);
-      sh.getRange(i + 1, 12).setValue(pago1.metodo || "");
-      sh.getRange(i + 1, 13).setValue(pago1.monto || "");
-      sh.getRange(i + 1, 14).setValue(pago2.metodo || "");
-      sh.getRange(i + 1, 15).setValue(pago2.monto || "");
+      sh.getRange(i + 1, 9, 1, 7).setValues([[
+        pagosInfo.metodo,
+        "pagado",
+        fechaPago,
+        pago1.metodo || "",
+        pago1.monto || "",
+        pago2.metodo || "",
+        pago2.monto || ""
+      ]]);
       return output({ ok: true, metodo_pago: pagosInfo.metodo, pagos: pagosInfo.pagos, fecha_pago: fechaPago.getTime() });
     }
-  }
 
-  return output({ error: "Servicio pendiente no encontrado" });
+    return output({ error: "Servicio pendiente no encontrado" });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function eliminarServicioRealizado(e) {
@@ -1011,7 +1038,7 @@ function editarTrabajador(e) {
   const password = e.parameter.password || "";
   const actorRol = normalizarRol(e.auth && e.auth.rol);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
   const activosSheet = ss.getSheetByName("Lavados_Activos");
   const completadosSheet = ss.getSheetByName("Lavados_Completados");
   const data = trabajadoresSheet.getDataRange().getValues();
@@ -1043,12 +1070,14 @@ function editarTrabajador(e) {
         return output({ error: "Solo el jefe puede modificar accesos administrativos" });
       }
 
-      if (nuevoNombre) trabajadoresSheet.getRange(i + 1, 2).setValue(nuevoNombre);
-      if (estado) trabajadoresSheet.getRange(i + 1, 3).setValue(estado);
-      if (nuevoCorreo !== undefined) trabajadoresSheet.getRange(i + 1, 6).setValue(nuevoCorreo);
-      trabajadoresSheet.getRange(i + 1, 8).setValue(rol);
-      trabajadoresSheet.getRange(i + 1, 9).setValue(rol ? (activo || "activo") : "");
-      if (password) trabajadoresSheet.getRange(i + 1, 7).setValue(hashPassword(password));
+      const siguienteTrabajador = data[i].slice(0, TRABAJADORES_HEADERS.length);
+      if (nuevoNombre) siguienteTrabajador[1] = nuevoNombre;
+      if (estado) siguienteTrabajador[2] = estado;
+      if (nuevoCorreo !== undefined) siguienteTrabajador[5] = nuevoCorreo;
+      siguienteTrabajador[7] = rol;
+      siguienteTrabajador[8] = rol ? (activo || "activo") : "";
+      if (password) siguienteTrabajador[6] = hashPassword(password);
+      trabajadoresSheet.getRange(i + 1, 1, 1, TRABAJADORES_HEADERS.length).setValues([siguienteTrabajador]);
       break;
     }
   }
@@ -1098,8 +1127,10 @@ function editarServicio(e) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(id)) {
-      if (nombre) sheet.getRange(i + 1, 2).setValue(nombre);
-      if (precio) sheet.getRange(i + 1, 3).setValue(Number(precio));
+      sheet.getRange(i + 1, 2, 1, 2).setValues([[
+        nombre || data[i][1],
+        precio ? Number(precio) : data[i][2]
+      ]]);
       return output({ ok: true });
     }
   }
@@ -1224,25 +1255,41 @@ function liquidarTrabajador(e) {
   if (!nombre || !valor) return output({ error: "Datos incompletos" });
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
-  const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS);
+  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
+  const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS, ss);
   const data = trabajadoresSheet.getDataRange().getValues();
   const hoy = new Date();
 
   for (let i = 1; i < data.length; i++) {
     if (data[i][1] === nombre) {
-      pagosSheet.appendRow([Date.now(), nombre, valor, hoy, "liquidarTrabajador"]);
-      return output({ ok: true });
+      const id = Date.now();
+      pagosSheet.appendRow([id, nombre, valor, hoy, "liquidarTrabajador"]);
+      return output({
+        ok: true,
+        liquidacion: {
+          id,
+          trabajadorId: data[i][0],
+          trabajador: nombre,
+          valor,
+          fecha: hoy.getTime(),
+          tipo: "liquidarTrabajador"
+        }
+      });
     }
   }
   return output({ error: "Trabajador no encontrado" });
 }
 
 function getLiquidaciones() {
-  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
-  const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
+  const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS, ss);
+  const excluidasSheet = getOrCreateSheet("Liquidaciones_Excluidas", LIQUIDACIONES_EXCLUIDAS_HEADERS, ss);
   const trabajadores = trabajadoresSheet.getDataRange().getValues();
   const pagos = pagosSheet.getDataRange().getValues();
+  const excluidos = excluidasSheet.getDataRange().getValues().slice(1)
+    .map(row => String(row[0]))
+    .filter(Boolean);
   const trabajadoresPorNombre = {};
 
   for (let i = 1; i < trabajadores.length; i++) {
@@ -1289,7 +1336,44 @@ function getLiquidaciones() {
   }
 
   detalle.sort((a, b) => Number(b.fecha || 0) - Number(a.fecha || 0));
-  return output({ detalle, resumen });
+  return output({ detalle, resumen, excluidos });
+}
+
+function eliminarLiquidacion(e) {
+  const trabajadorId = String(e.parameter.trabajador_id || "");
+  if (!trabajadorId) return output({ error: "Trabajador requerido" });
+
+  const rol = normalizarRol(e.auth && e.auth.rol);
+  if (rol !== "admin" && rol !== "jefe") {
+    return output({ error: "No tienes permisos para eliminar liquidaciones" });
+  }
+
+  const lock = tomarCandadoOperacion();
+  if (!lock) return output({ error: "Sistema ocupado, intenta de nuevo" });
+
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
+    const excluidasSheet = getOrCreateSheet("Liquidaciones_Excluidas", LIQUIDACIONES_EXCLUIDAS_HEADERS, ss);
+    const trabajadores = trabajadoresSheet.getDataRange().getValues();
+    const trabajador = trabajadores.slice(1).find(row => String(row[0]) === trabajadorId);
+    if (!trabajador) return output({ error: "Trabajador no encontrado" });
+
+    const excluidas = excluidasSheet.getDataRange().getValues();
+    const yaExcluida = excluidas.slice(1).some(row => String(row[0]) === trabajadorId);
+    if (!yaExcluida) {
+      excluidasSheet.appendRow([
+        trabajadorId,
+        trabajador[1],
+        new Date(),
+        normalizarCorreo(e.auth && e.auth.correo)
+      ]);
+    }
+
+    return output({ ok: true, trabajador_id: trabajadorId });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function hashPassword(pwd) {
@@ -1330,17 +1414,18 @@ function login(e) {
   const password = e.parameter.password;
   if (!correo || !password) return output({ error: "Datos incompletos" });
   const hash = hashPassword(password);
-  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const trabajadores = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
   const data = trabajadores.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     const rol = normalizarRol(data[i][7]);
     const activo = String(data[i][8] || "activo").toLowerCase();
     if (normalizarCorreo(data[i][5]) === correo && data[i][6] === hash && rol && activo !== "inactivo") {
-      eliminarSesionesPorCorreo(correo);
+      eliminarSesionesPorCorreo(correo, ss);
 
       const token = crearTokenSesion();
       const expira = getNextMidnight();
-      getOrCreateSheet("Sesiones", SESIONES_HEADERS).appendRow([
+      getOrCreateSheet("Sesiones", SESIONES_HEADERS, ss).appendRow([
         token,
         correo,
         data[i][1],
@@ -1458,6 +1543,7 @@ function getBootstrapData() {
   const activosRows = getBootstrapRows(spreadsheet, "Lavados_Activos");
   const completadosRows = getBootstrapRows(spreadsheet, "Lavados_Completados", COMPLETADOS_HEADERS);
   const pagosRows = getBootstrapRows(spreadsheet, "Pagos", PAGOS_HEADERS);
+  const liquidacionesExcluidasRows = getBootstrapRows(spreadsheet, "Liquidaciones_Excluidas", LIQUIDACIONES_EXCLUIDAS_HEADERS);
   const recogidasRows = getBootstrapRows(spreadsheet, "Recogidas_Programadas");
   const adicionalesRows = getBootstrapRows(spreadsheet, "Lavado_Adicionales", ADICIONALES_HEADERS);
   const gastosRows = getBootstrapRows(spreadsheet, "gasto_materiales");
@@ -1473,7 +1559,7 @@ function getBootstrapData() {
     trabajadores,
     activos: mapearActivosBootstrap(activosRows, adicionalesPorLavado, gastosPorLavado),
     ingresos,
-    liquidaciones: construirLiquidacionesBootstrap(trabajadoresRows, pagosRows),
+    liquidaciones: construirLiquidacionesBootstrap(trabajadoresRows, pagosRows, liquidacionesExcluidasRows),
     recogidas: mapearRecogidasBootstrap(recogidasRows),
     pendientesPago: construirPendientesBootstrap(completadosRows)
   });
@@ -1642,7 +1728,7 @@ function construirPendientesBootstrap(rows) {
   }));
 }
 
-function construirLiquidacionesBootstrap(trabajadoresRows, pagosRows) {
+function construirLiquidacionesBootstrap(trabajadoresRows, pagosRows, excluidasRows) {
   const trabajadoresPorNombre = {};
   trabajadoresRows.slice(1).forEach(row => {
     trabajadoresPorNombre[String(row[1] || "").trim()] = { id: row[0], nombre: row[1] };
@@ -1663,7 +1749,8 @@ function construirLiquidacionesBootstrap(trabajadoresRows, pagosRows) {
     if (!resumen[key] || Number(resumen[key].fecha || 0) < fecha) resumen[key] = { valor, fecha, trabajador, tipo: row[4] };
   });
   detalle.sort((a, b) => b.fecha - a.fecha);
-  return { detalle, resumen };
+  const excluidos = (excluidasRows || []).slice(1).map(row => String(row[0])).filter(Boolean);
+  return { detalle, resumen, excluidos };
 }
 
 function mapearRecogidasBootstrap(rows) {
