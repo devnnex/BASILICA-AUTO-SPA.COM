@@ -4450,9 +4450,6 @@ function inicializarDashboard() {
   setInterval(updateElapsedTimers, 1000);
 }
 
-configurarLogin();
-validarSesionGuardada();
-
 /* ===============================
    CARGA CONSOLIDADA Y SINCRONIZADA
    =============================== */
@@ -4469,7 +4466,11 @@ function apiJson(action, parametros = {}) {
 
   const solicitud = fetch(`${API_URL}?${query.toString()}`)
     .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.httpStatus = response.status;
+        throw error;
+      }
       return response.json();
     })
     .finally(() => solicitudesEnCurso.delete(key));
@@ -4695,7 +4696,8 @@ function cargarPendientesPago(options = {}) {
 
 function cargarBootstrap() {
   showAppLoader("Cargando información...");
-  return apiJson("bootstrap")
+  return Promise.resolve()
+    .then(() => apiJson("bootstrap"))
     .then(data => {
       if (data?.auth === false) {
         const error = new Error(data.error || "Sesión expirada");
@@ -4733,7 +4735,9 @@ function refrescarRecogidasSinSolapamiento() {
 
 function inicializarDashboard() {
   if (dashboardInicializado) {
-    cargarBootstrap().catch(error => console.error("No se pudo actualizar el inicio:", error));
+    Promise.resolve()
+      .then(cargarBootstrap)
+      .catch(error => console.error("No se pudo actualizar el inicio:", error));
     return;
   }
 
@@ -4741,22 +4745,28 @@ function inicializarDashboard() {
   renderHistorialPlaca("");
   renderCardsTrabajador();
 
-  cargarBootstrap().catch(error => {
-    if (error.authFailed) {
-      cerrarSesion({ silent: true, expired: true });
-      return;
-    }
-    console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
-    return Promise.all([
-      cargarActivos(),
-      cargarIngresos(),
-      cargarServicios(),
-      cargarTrabajadores(),
-      cargarLiquidaciones({ silent: true }),
-      cargarRecogidas(),
-      cargarPendientesPago({ silent: true })
-    ]);
-  });
+  Promise.resolve()
+    .then(cargarBootstrap)
+    .catch(error => {
+      if (error.authFailed) {
+        cerrarSesion({ silent: true, expired: true });
+        return;
+      }
+      if (error.httpStatus === 404) {
+        Swal.fire("API no disponible", "La URL del Apps Script no está respondiendo. Verifica el despliegue y actualiza config.js con la URL /exec vigente.", "error");
+        return;
+      }
+      console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
+      return Promise.all([
+        cargarActivos(),
+        cargarIngresos(),
+        cargarServicios(),
+        cargarTrabajadores(),
+        cargarLiquidaciones({ silent: true }),
+        cargarRecogidas(),
+        cargarPendientesPago({ silent: true })
+      ]);
+    });
 
   setInterval(refrescarActivosSinSolapamiento, 10000);
   setInterval(refrescarRecogidasSinSolapamiento, 30000);
@@ -4770,6 +4780,15 @@ function inicializarDashboard() {
   });
 }
 
+function iniciarAplicacion() {
+  configurarLogin();
+  Promise.resolve()
+    .then(validarSesionGuardada)
+    .catch(error => {
+      console.error("No se pudo recuperar la sesion guardada:", error);
+      hideAppLoader();
+      setLoggedOutUI();
+    });
+}
 
-
-
+iniciarAplicacion();
