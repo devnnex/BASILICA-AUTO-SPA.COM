@@ -4812,11 +4812,33 @@ function cargarPendientesPago(options = {}) {
     });
 }
 
+function rechazarPorTimeout(ms, mensaje) {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(mensaje)), ms);
+  });
+}
+
+function cargarDashboardCompatibilidad(error) {
+  console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
+  return Promise.all([
+    cargarActivos(),
+    cargarIngresos(),
+    cargarServicios(),
+    cargarTrabajadores(),
+    cargarLiquidaciones({ silent: true }),
+    cargarRecogidas(),
+    cargarPendientesPago({ silent: true })
+  ]);
+}
+
 function cargarBootstrap() {
   showAppLoader("Cargando información...");
   let bootstrapListo = false;
   return Promise.resolve()
-    .then(() => apiJson("bootstrap"))
+    .then(() => Promise.race([
+      apiJson("bootstrap"),
+      rechazarPorTimeout(4000, "Bootstrap excedio el tiempo de espera")
+    ]))
     .then(data => {
       if (data?.auth === false) {
         const error = new Error(data.error || "Sesión expirada");
@@ -4870,7 +4892,15 @@ function inicializarDashboard() {
   if (dashboardInicializado) {
     Promise.resolve()
       .then(cargarBootstrap)
-      .catch(error => console.error("No se pudo actualizar el inicio:", error));
+      .catch(error => {
+        if (error.authFailed) {
+          cerrarSesion({ silent: true, expired: true });
+          return;
+        }
+        cargarDashboardCompatibilidad(error).catch(fallbackError => {
+          console.error("No se pudo actualizar el inicio:", fallbackError);
+        });
+      });
     return;
   }
 
@@ -4885,20 +4915,7 @@ function inicializarDashboard() {
         cerrarSesion({ silent: true, expired: true });
         return;
       }
-      if (error.httpStatus === 404) {
-        Swal.fire("API no disponible", "La URL del Apps Script no está respondiendo. Verifica el despliegue y actualiza config.js con la URL /exec vigente.", "error");
-        return;
-      }
-      console.warn("La carga consolidada no está disponible; usando compatibilidad temporal.", error);
-      return Promise.all([
-        cargarActivos(),
-        cargarIngresos(),
-        cargarServicios(),
-        cargarTrabajadores(),
-        cargarLiquidaciones({ silent: true }),
-        cargarRecogidas(),
-        cargarPendientesPago({ silent: true })
-      ]);
+      return cargarDashboardCompatibilidad(error);
     });
 
   setInterval(refrescarActivosSinSolapamiento, 10000);
