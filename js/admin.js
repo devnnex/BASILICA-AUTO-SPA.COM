@@ -4111,7 +4111,7 @@ function cargarIngresos(options = {}) {
 function renderResumenIngresos() {
   if (!kpiServicios || !kpiHoy || !kpiMes) return;
 
-  if (ingresosResumen) {
+  if (ingresosResumen && !ingresosCompletosCargados) {
     kpiServicios.textContent = Number(ingresosResumen.hoy?.cantidad || 0);
     kpiHoy.textContent = formatCOP(ingresosResumen.hoy?.total || 0);
     kpiMes.textContent = formatCOP(ingresosResumen.mes?.total || 0);

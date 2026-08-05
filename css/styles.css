@@ -1345,6 +1345,15 @@ button:active {
   font-weight: 680;
 }
 
+.bubble .neon {
+  width: 100%;
+  font-size: clamp(.95rem, 1.2vw, 1.28rem);
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .bubble small {
   color: var(--text-soft);
 }
