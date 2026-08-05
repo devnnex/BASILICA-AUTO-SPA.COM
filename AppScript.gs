@@ -16,6 +16,8 @@ const SESIONES_HEADERS = ["Token", "Correo", "Nombre", "Rol", "Creado", "Expira"
 const PAGOS_HEADERS = ["ID", "Trabajador", "Valor", "Fecha", "Tipo"];
 const ADICIONALES_HEADERS = ["ID", "Lavado_ID", "Nombre", "Precio", "Fecha", "Activo"];
 const LIQUIDACIONES_EXCLUIDAS_HEADERS = ["Trabajador_ID", "Trabajador", "Fecha", "Eliminado_Por"];
+const INDICE_INGRESOS_HEADERS = ["Tipo", "Clave", "Total", "Cantidad", "Actualizado"];
+const BOOTSTRAP_INGRESOS_LIMIT = 120;
 
 function doGet(e) {
   const action = e.parameter.action;
@@ -563,6 +565,12 @@ function confirmarLavado(e) {
         "",
         ""
       ]);
+      actualizarIndiceIngreso(ss, {
+        precio: precioFinal,
+        fecha: fechaFin,
+        trabajador: data[i][4],
+        servicio: data[i][2]
+      }, 1);
 
       const workers = trabajadores.getDataRange().getValues();
       for (let w = 1; w < workers.length; w++) {
@@ -646,6 +654,7 @@ function registrarServicioRealizadoManual(e) {
     "manual",
     nota
   ]);
+  actualizarIndiceIngreso(ss, { precio, fecha: fechaFin, trabajador, servicio }, 1);
 
   return output({ ok: true, id, estado_pago: estadoPago, metodo_pago: pagosInfo.metodo, pagos: pagosInfo.pagos });
 }
@@ -716,6 +725,12 @@ function eliminarLavadoActivo(e) {
             "cancelado",
             motivoCancelacion
           ]);
+          actualizarIndiceIngreso(ss, {
+            precio: pagoCancelacion,
+            fecha: fechaFin,
+            trabajador,
+            servicio: data[i][2]
+          }, 1);
         }
 
         const workers = trabajadores.getDataRange().getValues();
@@ -995,6 +1010,7 @@ function eliminarServicioRealizado(e) {
           fecha: data[i][5] instanceof Date ? data[i][5].getTime() : new Date(data[i][5]).getTime()
         };
 
+        actualizarIndiceIngreso(SpreadsheetApp.openById(SPREADSHEET_ID), eliminado, -1);
         sh.deleteRow(i + 1);
         return output({ ok: true, eliminado });
       }
@@ -1541,17 +1557,18 @@ function getBootstrapData() {
   const serviciosRows = getBootstrapRows(spreadsheet, "Servicios");
   const trabajadoresRows = getBootstrapRows(spreadsheet, "Trabajadores", TRABAJADORES_HEADERS);
   const activosRows = getBootstrapRows(spreadsheet, "Lavados_Activos");
-  const completadosRows = getBootstrapRows(spreadsheet, "Lavados_Completados", COMPLETADOS_HEADERS);
-  const pagosRows = getBootstrapRows(spreadsheet, "Pagos", PAGOS_HEADERS);
   const liquidacionesExcluidasRows = getBootstrapRows(spreadsheet, "Liquidaciones_Excluidas", LIQUIDACIONES_EXCLUIDAS_HEADERS);
   const recogidasRows = getBootstrapRows(spreadsheet, "Recogidas_Programadas");
   const adicionalesRows = getBootstrapRows(spreadsheet, "Lavado_Adicionales", ADICIONALES_HEADERS);
   const gastosRows = getBootstrapRows(spreadsheet, "gasto_materiales");
+  const completadosRecientes = getBootstrapRowsLimit(spreadsheet, "Lavados_Completados", COMPLETADOS_HEADERS, BOOTSTRAP_INGRESOS_LIMIT);
+  const resumenIngresos = getResumenIndiceIngresos(spreadsheet);
 
   const adicionalesPorLavado = agruparAdicionalesBootstrap(adicionalesRows);
   const gastosPorLavado = agruparGastosBootstrap(gastosRows);
   const trabajadores = mapearTrabajadoresBootstrap(trabajadoresRows);
-  const ingresos = construirIngresosBootstrap(completadosRows);
+  const ingresos = construirIngresosBootstrap(completadosRecientes);
+  ingresos.resumen = resumenIngresos;
 
   return output({
     ok: true,
@@ -1559,9 +1576,9 @@ function getBootstrapData() {
     trabajadores,
     activos: mapearActivosBootstrap(activosRows, adicionalesPorLavado, gastosPorLavado),
     ingresos,
-    liquidaciones: construirLiquidacionesBootstrap(trabajadoresRows, pagosRows, liquidacionesExcluidasRows),
+    liquidaciones: { detalle: [], resumen: {}, excluidos: liquidacionesExcluidasRows.slice(1).map(row => String(row[0])).filter(Boolean) },
     recogidas: mapearRecogidasBootstrap(recogidasRows),
-    pendientesPago: construirPendientesBootstrap(completadosRows)
+    pendientesPago: []
   });
 }
 
@@ -1617,6 +1634,121 @@ function getBootstrapRows(spreadsheet, name, headers) {
   }
   if (!sheet || sheet.getLastRow() === 0) return [];
   return sheet.getDataRange().getValues();
+}
+
+function getBootstrapRowsLimit(spreadsheet, name, headers, limit) {
+  let sheet = spreadsheet.getSheetByName(name);
+  if (!sheet && headers) {
+    sheet = spreadsheet.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  if (!sheet || sheet.getLastRow() === 0) return [];
+
+  const lastRow = sheet.getLastRow();
+  const firstDataRow = Math.max(2, lastRow - Math.max(1, Number(limit) || 1) + 1);
+  const width = Math.max(sheet.getLastColumn(), headers ? headers.length : 1);
+  const rows = lastRow < 2 ? [] : sheet.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, width).getValues();
+  const header = sheet.getRange(1, 1, 1, width).getValues()[0];
+  return [header].concat(rows);
+}
+
+function getClaveIndiceIngreso(tipo, clave) {
+  return `${tipo}:${String(clave || "")}`;
+}
+
+function getResumenIndiceIngresos(spreadsheet) {
+  if (PropertiesService.getScriptProperties().getProperty("INDICE_INGRESOS_LISTO") !== "true") {
+    return { listo: false };
+  }
+  const sheet = getOrCreateSheet("Indice_Ingresos", INDICE_INGRESOS_HEADERS, spreadsheet);
+  if (sheet.getLastRow() < 2) return { listo: false };
+
+  const metrics = {};
+  sheet.getDataRange().getValues().slice(1).forEach(row => {
+    metrics[getClaveIndiceIngreso(row[0], row[1])] = {
+      total: Number(row[2]) || 0,
+      cantidad: Number(row[3]) || 0
+    };
+  });
+
+  const now = new Date();
+  const dayKey = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const monthKey = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM");
+  return {
+    listo: true,
+    hoy: metrics[getClaveIndiceIngreso("dia", dayKey)] || { total: 0, cantidad: 0 },
+    mes: metrics[getClaveIndiceIngreso("mes", monthKey)] || { total: 0, cantidad: 0 }
+  };
+}
+
+function reconstruirIndiceIngresos() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const completados = spreadsheet.getSheetByName("Lavados_Completados");
+  const indice = getOrCreateSheet("Indice_Ingresos", INDICE_INGRESOS_HEADERS, spreadsheet);
+  PropertiesService.getScriptProperties().setProperty("INDICE_INGRESOS_LISTO", "false");
+  if (!completados || completados.getLastRow() < 2) {
+    indice.clearContents();
+    indice.getRange(1, 1, 1, INDICE_INGRESOS_HEADERS.length).setValues([INDICE_INGRESOS_HEADERS]);
+    PropertiesService.getScriptProperties().setProperty("INDICE_INGRESOS_LISTO", "true");
+    return { ok: true, registros: 0 };
+  }
+
+  const lastRow = completados.getLastRow();
+  const rows = completados.getRange(2, 1, lastRow - 1, 6).getValues();
+  const metrics = {};
+  rows.forEach(row => {
+    const precio = Number(row[3]) || 0;
+    const fecha = bootstrapTimestamp(row[5]);
+    if (!precio || !fecha) return;
+    const date = new Date(fecha);
+    const dayKey = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    const monthKey = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM");
+    [["dia", dayKey], ["mes", monthKey], ["trabajador", row[4]], ["servicio", row[2]]].forEach(([tipo, clave]) => {
+      const key = getClaveIndiceIngreso(tipo, clave);
+      if (!metrics[key]) metrics[key] = { tipo, clave, total: 0, cantidad: 0 };
+      metrics[key].total += precio;
+      metrics[key].cantidad++;
+    });
+  });
+
+  const outputRows = Object.values(metrics).map(metric => [metric.tipo, metric.clave, metric.total, metric.cantidad, new Date()]);
+  indice.clearContents();
+  indice.getRange(1, 1, 1, INDICE_INGRESOS_HEADERS.length).setValues([INDICE_INGRESOS_HEADERS]);
+  if (outputRows.length) indice.getRange(2, 1, outputRows.length, INDICE_INGRESOS_HEADERS.length).setValues(outputRows);
+  PropertiesService.getScriptProperties().setProperty("INDICE_INGRESOS_LISTO", "true");
+  return { ok: true, registros: rows.length, metricas: outputRows.length };
+}
+
+function actualizarIndiceIngreso(spreadsheet, registro, delta) {
+  if (PropertiesService.getScriptProperties().getProperty("INDICE_INGRESOS_LISTO") !== "true") return;
+  const precio = Number(registro.precio) || 0;
+  const fecha = bootstrapTimestamp(registro.fecha);
+  if (!precio || !fecha || !delta) return;
+
+  const date = new Date(fecha);
+  const keys = [
+    ["dia", Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd")],
+    ["mes", Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM")],
+    ["trabajador", registro.trabajador],
+    ["servicio", registro.servicio]
+  ];
+  const sheet = getOrCreateSheet("Indice_Ingresos", INDICE_INGRESOS_HEADERS, spreadsheet);
+  const rows = sheet.getDataRange().getValues();
+  const positions = {};
+  rows.slice(1).forEach((row, index) => { positions[getClaveIndiceIngreso(row[0], row[1])] = index + 2; });
+  const now = new Date();
+
+  keys.forEach(([tipo, clave]) => {
+    const key = getClaveIndiceIngreso(tipo, clave);
+    const row = positions[key];
+    if (row) {
+      const total = Math.max(0, Number(rows[row - 1][2]) + precio * delta);
+      const cantidad = Math.max(0, Number(rows[row - 1][3]) + delta);
+      sheet.getRange(row, 3, 1, 3).setValues([[total, cantidad, now]]);
+    } else if (delta > 0) {
+      sheet.appendRow([tipo, clave, precio, 1, now]);
+    }
+  });
 }
 
 function bootstrapTimestamp(value) {

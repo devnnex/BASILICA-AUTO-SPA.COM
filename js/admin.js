@@ -2516,6 +2516,7 @@ const paginacionIngresos = document.getElementById("paginacionIngresos");
 
 let ingresosDetalle = [];
 let pendientesPagoData = [];
+let ingresosResumen = null;
 
 /* ---------- UTILIDADES ---------- */
 // Convierte cualquier cosa a nÃºmero seguro
@@ -4082,6 +4083,13 @@ function cargarIngresos(options = {}) {
 function renderResumenIngresos() {
   if (!kpiServicios || !kpiHoy || !kpiMes) return;
 
+  if (ingresosResumen) {
+    kpiServicios.textContent = Number(ingresosResumen.hoy?.cantidad || 0);
+    kpiHoy.textContent = formatCOP(ingresosResumen.hoy?.total || 0);
+    kpiMes.textContent = formatCOP(ingresosResumen.mes?.total || 0);
+    return;
+  }
+
   const hoy = new Date();
   const mes = hoy.getMonth();
   const anio = hoy.getFullYear();
@@ -4518,6 +4526,7 @@ function aplicarTrabajadores(trabajadores) {
 
 function aplicarIngresos(ingresos) {
   ingresosDetalle = Array.isArray(ingresos?.detalle) ? ingresos.detalle : [];
+  ingresosResumen = ingresos?.resumen?.listo ? ingresos.resumen : null;
   if (placaHistorialInput?.value) {
     renderHistorialPlaca(placaHistorialInput.value, getHistorialLocalPlaca(placaHistorialInput.value));
   }
