@@ -2491,6 +2491,10 @@ document.querySelectorAll(".sidebar button").forEach(btn => {
       s.classList.remove("active")
     );
     document.getElementById(btn.dataset.section).classList.add("active");
+
+    if (btn.dataset.section === "ingresos") {
+      cargarIngresosCompletos({ showProgress: true }).catch(console.error);
+    }
   };
 });
 
@@ -2517,6 +2521,8 @@ const paginacionIngresos = document.getElementById("paginacionIngresos");
 let ingresosDetalle = [];
 let pendientesPagoData = [];
 let ingresosResumen = null;
+let ingresosCompletosCargados = false;
+let cargaIngresosCompletaEnCurso = null;
 
 /* ---------- UTILIDADES ---------- */
 // Convierte cualquier cosa a nÃºmero seguro
@@ -4525,9 +4531,21 @@ function aplicarTrabajadores(trabajadores) {
   return trabajadoresData;
 }
 
-function aplicarIngresos(ingresos) {
-  ingresosDetalle = Array.isArray(ingresos?.detalle) ? ingresos.detalle : [];
-  ingresosResumen = ingresos?.resumen?.listo ? ingresos.resumen : null;
+function aplicarIngresos(ingresos, options = {}) {
+  const detalle = Array.isArray(ingresos?.detalle) ? ingresos.detalle : [];
+  if (!options.completo && ingresosCompletosCargados && detalle.length < ingresosDetalle.length) {
+    if (ingresos?.resumen?.listo) ingresosResumen = ingresos.resumen;
+    renderResumenIngresos();
+    return ingresosDetalle;
+  }
+
+  ingresosDetalle = detalle;
+  ingresosCompletosCargados = Boolean(options.completo);
+  if (ingresos?.resumen?.listo) {
+    ingresosResumen = ingresos.resumen;
+  } else if (!ingresosResumen || options.completo) {
+    ingresosResumen = null;
+  }
   if (placaHistorialInput?.value) {
     renderHistorialPlaca(placaHistorialInput.value, getHistorialLocalPlaca(placaHistorialInput.value));
   }
@@ -4634,7 +4652,7 @@ function cargarIngresos(options = {}) {
   }
 
   return apiJson("ingresos")
-    .then(aplicarIngresos)
+    .then(data => aplicarIngresos(data, { completo: true }))
     .catch(error => {
       console.error("Error cargando ingresos:", error);
       return ingresosDetalle;
@@ -4646,6 +4664,28 @@ function cargarIngresos(options = {}) {
         setSectionLoading("liquidaciones", false);
       }
     });
+}
+
+function cargarIngresosCompletos(options = {}) {
+  if (ingresosCompletosCargados) return Promise.resolve(ingresosDetalle);
+  if (cargaIngresosCompletaEnCurso) return cargaIngresosCompletaEnCurso;
+
+  const showProgress = Boolean(options.showProgress);
+  if (showProgress) {
+    setSectionLoading("ingresos", true, "Cargando historial completo...");
+  }
+
+  cargaIngresosCompletaEnCurso = cargarIngresos({ silent: true })
+    .catch(error => {
+      console.error("No se pudo cargar el historial completo:", error);
+      return ingresosDetalle;
+    })
+    .finally(() => {
+      cargaIngresosCompletaEnCurso = null;
+      if (showProgress) setSectionLoading("ingresos", false);
+    });
+
+  return cargaIngresosCompletaEnCurso;
 }
 
 function cargarLiquidaciones(options = {}) {
@@ -4712,6 +4752,9 @@ function cargarBootstrap() {
       aplicarLiquidaciones(data.liquidaciones);
       aplicarRecogidas(data.recogidas);
       pendientesPagoData = Array.isArray(data.pendientesPago) ? data.pendientesPago : [];
+      cargarIngresosCompletos({ showProgress: false }).catch(error => {
+        console.error("No se pudo cargar el historial completo:", error);
+      });
       return data;
     })
     .finally(() => hideAppLoader());

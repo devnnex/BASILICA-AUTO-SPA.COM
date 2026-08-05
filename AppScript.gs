@@ -758,7 +758,11 @@ function eliminarLavadoActivo(e) {
 }
 
 function getIngresos() {
-  const data = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS).getDataRange().getValues();
+  const sheet = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
+  const lastRow = sheet.getLastRow();
+  const data = lastRow
+    ? sheet.getRange(1, 1, lastRow, COMPLETADOS_HEADERS.length).getValues()
+    : [];
 
   const detalle = [];
   for (let i = 1; i < data.length; i++) {
