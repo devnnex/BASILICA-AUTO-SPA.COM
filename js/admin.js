@@ -322,6 +322,7 @@ let trabajadoresData = [];
 let liquidacionesData = {};
 let liquidacionesDetalle = [];
 let liquidacionesExcluidas = new Set();
+let liquidacionesCargadas = false;
 
 
 //Variables globales de los graficos de ganancias/ingresos
@@ -2495,6 +2496,14 @@ document.querySelectorAll(".sidebar button").forEach(btn => {
     if (btn.dataset.section === "ingresos") {
       cargarIngresosCompletos({ showProgress: true }).catch(console.error);
     }
+    if (btn.dataset.section === "liquidaciones") {
+      asegurarLiquidacionesListas({ showProgress: true }).catch(console.error);
+    }
+    if (btn.dataset.section === "ganancias") {
+      cargarIngresosCompletos({ showProgress: true, progressSection: "ganancias" })
+        .then(renderGanancias)
+        .catch(console.error);
+    }
   };
 });
 
@@ -3483,6 +3492,46 @@ function calcularIngresosPorTrabajador(
   }, {});
 }
 
+function getUltimaLiquidacionTrabajador(trabajador) {
+  if (!trabajador) return null;
+
+  const porId = liquidacionesData[String(trabajador.id)] || liquidacionesData[trabajador.id];
+  if (porId?.fecha) return porId;
+
+  const nombreNormalizado = normalizarTexto(trabajador.nombre || "");
+  if (!nombreNormalizado) return null;
+
+  return liquidacionesDetalle
+    .filter(item => normalizarTexto(item.trabajador || "") === nombreNormalizado)
+    .reduce((ultima, item) => {
+      const fecha = toTimestamp(item.fecha);
+      if (!fecha) return ultima;
+      if (!ultima || fecha > toTimestamp(ultima.fecha)) return item;
+      return ultima;
+    }, null);
+}
+
+function calcularPendienteLiquidacionTrabajador(trabajador) {
+  const liquidacion = getUltimaLiquidacionTrabajador(trabajador);
+  const ultimaFecha = toTimestamp(liquidacion?.fecha);
+
+  const ingresosPendientes = ingresosDetalle.filter(ingreso => {
+    if (ingreso.trabajador !== trabajador.nombre) return false;
+    const fechaServicio = toTimestamp(ingreso.fecha);
+    if (!fechaServicio) return false;
+    return !ultimaFecha || fechaServicio > ultimaFecha;
+  });
+
+  const total = ingresosPendientes.reduce((acc, ingreso) => acc + Number(ingreso.precio || 0), 0);
+  return {
+    trabajador,
+    liquidacion,
+    ingresos: ingresosPendientes,
+    total,
+    servicios: ingresosPendientes.length
+  };
+}
+
 
 /* ===============================
    RENDER CARDS GLASS / NEON
@@ -3491,8 +3540,12 @@ function renderCardsTrabajador() {
   if (!cardsTrabajador) return;
 
   const trabajadorSeleccionado = filtroTrabajador.value;
-  const diasSeleccionados = filtroFecha.value;
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
+
+  if (!liquidacionesCargadas || !ingresosCompletosCargados) {
+    cardsTrabajador.innerHTML = `<p style="opacity:.6">Actualizando liquidaciones...</p>`;
+    return;
+  }
 
   // 1ï¸âƒ£ Filtrar trabajadores segÃºn selecciÃ³n
   let trabajadoresAFiltrar = trabajadoresData.filter(trabajador =>
@@ -3521,36 +3574,9 @@ function renderCardsTrabajador() {
 
   // Renderizar trabajadores
   trabajadoresAFiltrar.forEach(trabajador => {
-    const liquidacion = liquidacionesData[trabajador.id] || null;
-    const fechaUltimaLiquidacion = liquidacion?.fecha || null;
-
-    // Filtrar ingresos solo despues de la liquidacion
-    let ingresosFiltrados = ingresosDetalle.filter(i => {
-      if (i.trabajador !== trabajador.nombre) return false;
-      if (!i.fecha) return false;
-
-      const fechaServicio = new Date(i.fecha);
-
-      // Ignorar ingresos ya liquidados
-      if (fechaUltimaLiquidacion && fechaServicio <= fechaUltimaLiquidacion) {
-        return false;
-      }
-
-      return true;
-    });
-
-    // Aplicar filtro de dias (si existe)
-    if (diasSeleccionados) {
-      ingresosFiltrados = filtrarPorFecha(ingresosFiltrados, diasSeleccionados);
-    }
-
-    // Calcular totales
-    const total = ingresosFiltrados.reduce(
-      (acc, i) => acc + Number(i.precio || 0),
-      0
-    );
-
-    const servicios = ingresosFiltrados.length;
+    const resumenPendiente = calcularPendienteLiquidacionTrabajador(trabajador);
+    const { liquidacion, total, servicios } = resumenPendiente;
+    if (!servicios || total <= 0) return;
 
     const card = document.createElement("div");
     card.className = "card-glass-neon clickable";
@@ -3740,6 +3766,7 @@ function abrirModalLiquidacion(resumenTrabajador) {
           if (resp?.error) throw new Error(resp.error);
           const liquidacionRegistrada = resp.liquidacion;
           if (liquidacionRegistrada?.trabajadorId) {
+            liquidacionesCargadas = true;
             liquidacionesData[liquidacionRegistrada.trabajadorId] = {
               valor: Number(liquidacionRegistrada.valor) || 0,
               fecha: new Date(liquidacionRegistrada.fecha),
@@ -3820,6 +3847,7 @@ function cargarLiquidaciones(options = {}) {
     .then(data => {
       liquidacionesDetalle = Array.isArray(data.detalle) ? data.detalle : [];
       liquidacionesData = {};
+      liquidacionesCargadas = true;
 
       Object.entries(data.resumen || {}).forEach(([id, liquidacion]) => {
         const fecha = toDateSafe(liquidacion.fecha);
@@ -3840,6 +3868,7 @@ function cargarLiquidaciones(options = {}) {
       console.error("Error liquidaciones:", err);
       liquidacionesDetalle = [];
       liquidacionesData = {};
+      liquidacionesCargadas = false;
       renderCardsTrabajador();
       renderLiquidaciones();
       return {};
@@ -3881,8 +3910,9 @@ function parseFechaSegura(fecha) {
 
 // Convierte Date a texto bonito: Lun 12 ene 2026
 function formatoFechaBonita(fecha) {
-  if (!(fecha instanceof Date) || isNaN(fecha)) return "-";
-  return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  const fechaNormalizada = toDateSafe(fecha);
+  if (!fechaNormalizada) return "-";
+  return fechaNormalizada.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 /* ===============================
@@ -3892,9 +3922,13 @@ function renderLiquidaciones() {
   if (!tablaLiquidaciones || !trabajadoresData.length) return;
 
   const trabajadorFiltro = filtroLiquidacionesTrabajador.value;
-  const fechaFiltro = filtroLiquidacionesFecha.value || "15";
   const trabajadorResumenFiltro = filtroTrabajador?.value || "";
   const busquedaLiquidaciones = normalizarTexto(buscadorLiquidaciones?.value || "");
+
+  if (!liquidacionesCargadas || !ingresosCompletosCargados) {
+    tablaLiquidaciones.innerHTML = `<tr><td colspan="6">Actualizando liquidaciones...</td></tr>`;
+    return;
+  }
 
   let trabajadoresFiltrados = trabajadoresData.filter(trabajador =>
     esOperarioLiquidable(trabajador) && !liquidacionesExcluidas.has(String(trabajador.id))
@@ -3912,15 +3946,9 @@ function renderLiquidaciones() {
   }
 
   const filas = trabajadoresFiltrados.map(t => {
-    const liquidacion = liquidacionesData[t.id] || null;
-
-    // Aplicar filtro de fecha
-    if (liquidacion && liquidacion.fecha && !fechaDentroDeFiltro(liquidacion.fecha, fechaFiltro)) return "";
-
-    // Calcular total generado desde ingresosDetalle
-    const ingresosTrabajador = ingresosDetalle
-      .filter(i => i.trabajador === t.nombre && fechaDentroDeFiltro(i.fecha, fechaFiltro))
-      .reduce((acc, i) => acc + Number(i.precio), 0);
+    const resumenPendiente = calcularPendienteLiquidacionTrabajador(t);
+    const { liquidacion, total, servicios } = resumenPendiente;
+    if (!servicios || total <= 0) return "";
 
     // Valor liquidado en COP
     const valorFormateado = liquidacion && liquidacion.valor != null ? formatCOP(liquidacion.valor) : "-";
@@ -3928,18 +3956,12 @@ function renderLiquidaciones() {
     // Fecha bonita
     const fechaFormateada = liquidacion && liquidacion.fecha ? formatoFechaBonita(liquidacion.fecha) : "-";
 
-    // Calcular porcentaje real pagado sobre total generado
-    let porcentajeReal = "-";
-    if (ingresosTrabajador > 0 && liquidacion && liquidacion.valor != null) {
-      porcentajeReal = ((liquidacion.valor / ingresosTrabajador) * 100).toFixed(2);
-    }
-
     return `
       <tr>
         <td>${escapeHTML(t.nombre)}</td>
         <td>${escapeHTML(t.estado)}</td>
-        <td>${formatCOP(ingresosTrabajador)}</td>
-        <td>${valorFormateado} (${porcentajeReal !== "-" ? porcentajeReal + "%" : "-"})</td>
+        <td>${formatCOP(total)}</td>
+        <td>${valorFormateado}</td>
         <td>${fechaFormateada}</td>
         <td><button type="button" class="delete delete-liquidacion" data-trabajador-id="${escapeHTML(t.id)}">Eliminar</button></td>
       </tr>
@@ -4198,13 +4220,14 @@ function renderGanancias() {
   const actuales = filtrarPorRango(ingresosDetalle, dias);
 
   const anteriores = ingresosDetalle.filter(i => {
-    if (typeof i.fecha !== "number") return false;
+    const fecha = toTimestamp(i.fecha);
+    if (!fecha) return false;
 
     const ahora = Date.now();
     const inicioActual = ahora - dias * 24 * 60 * 60 * 1000;
     const inicioAnterior = ahora - dias * 2 * 24 * 60 * 60 * 1000;
 
-    return i.fecha >= inicioAnterior && i.fecha < inicioActual;
+    return fecha >= inicioAnterior && fecha < inicioActual;
   });
 
   // ===============================
@@ -4247,7 +4270,7 @@ function renderGanancias() {
   }, {});
 
   renderBurbujas(resumen);
-  generarChartIngresosMes(actuales);
+  generarChartIngresosMes(ingresosDetalle);
   generarChartTopServicios(actuales);
 }
 
@@ -4321,14 +4344,29 @@ function generarChartIngresosMes(detalle) {
   const agrupado = {};
 
   detalle.forEach(i => {
-    const d = new Date(i.fecha);
+    const fecha = toTimestamp(i.fecha);
+    if (!fecha) return;
+    const d = new Date(fecha);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
     if (!agrupado[key]) agrupado[key] = 0;
     agrupado[key] += Number(i.precio || 0);
   });
 
-  const keys = Object.keys(agrupado).sort();
+  const keysConDatos = Object.keys(agrupado).sort();
+  const keys = [];
+  if (keysConDatos.length) {
+    const [anioInicio, mesInicio] = keysConDatos[0].split("-").map(Number);
+    const [anioFin, mesFin] = keysConDatos[keysConDatos.length - 1].split("-").map(Number);
+    const cursor = new Date(anioInicio, mesInicio - 1, 1);
+    const fin = new Date(anioFin, mesFin - 1, 1);
+
+    while (cursor <= fin) {
+      keys.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+
   const labels = keys.map(key => {
     const [anio, mes] = key.split("-").map(Number);
     return new Date(anio, mes - 1, 1).toLocaleDateString("es-CO", {
@@ -4336,7 +4374,7 @@ function generarChartIngresosMes(detalle) {
       year: "numeric"
     });
   });
-  const data = keys.map(l => agrupado[l]);
+  const data = keys.map(l => agrupado[l] || 0);
 
   const ctx = document.getElementById("chartIngresosMes");
 
@@ -4562,6 +4600,7 @@ function aplicarLiquidaciones(data) {
   liquidacionesDetalle = Array.isArray(data?.detalle) ? data.detalle : [];
   liquidacionesExcluidas = new Set((data?.excluidos || []).map(id => String(id)));
   liquidacionesData = {};
+  liquidacionesCargadas = true;
 
   Object.entries(data?.resumen || {}).forEach(([id, liquidacion]) => {
     const fecha = toDateSafe(liquidacion.fecha);
@@ -4671,8 +4710,9 @@ function cargarIngresosCompletos(options = {}) {
   if (cargaIngresosCompletaEnCurso) return cargaIngresosCompletaEnCurso;
 
   const showProgress = Boolean(options.showProgress);
+  const progressSection = options.progressSection || "ingresos";
   if (showProgress) {
-    setSectionLoading("ingresos", true, "Cargando historial completo...");
+    setSectionLoading(progressSection, true, "Cargando historial completo...");
   }
 
   cargaIngresosCompletaEnCurso = cargarIngresos({ silent: true })
@@ -4682,10 +4722,25 @@ function cargarIngresosCompletos(options = {}) {
     })
     .finally(() => {
       cargaIngresosCompletaEnCurso = null;
-      if (showProgress) setSectionLoading("ingresos", false);
+      if (showProgress) setSectionLoading(progressSection, false);
     });
 
   return cargaIngresosCompletaEnCurso;
+}
+
+function cargarIngresosCompletosEnSegundoPlano() {
+  const cargar = () => {
+    cargarIngresosCompletos({ showProgress: false }).catch(error => {
+      console.error("No se pudo cargar el historial completo:", error);
+    });
+  };
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(cargar, { timeout: 1500 });
+    return;
+  }
+
+  setTimeout(cargar, 0);
 }
 
 function cargarLiquidaciones(options = {}) {
@@ -4695,10 +4750,33 @@ function cargarLiquidaciones(options = {}) {
     .then(aplicarLiquidaciones)
     .catch(error => {
       console.error("Error liquidaciones:", error);
+      liquidacionesCargadas = false;
       return liquidacionesData;
     })
     .finally(() => {
       if (!silent) setSectionLoading("liquidaciones", false);
+    });
+}
+
+function asegurarLiquidacionesListas(options = {}) {
+  const showProgress = Boolean(options.showProgress);
+  if (showProgress) setSectionLoading("liquidaciones", true, "Actualizando liquidaciones...");
+
+  const cargaLiquidaciones = liquidacionesCargadas
+    ? Promise.resolve(liquidacionesData)
+    : cargarLiquidaciones({ silent: true });
+
+  return Promise.all([
+    cargarIngresosCompletos({ showProgress: false }),
+    cargaLiquidaciones
+  ])
+    .then(() => {
+      renderCardsTrabajador();
+      renderLiquidaciones();
+      return liquidacionesData;
+    })
+    .finally(() => {
+      if (showProgress) setSectionLoading("liquidaciones", false);
     });
 }
 
@@ -4736,6 +4814,7 @@ function cargarPendientesPago(options = {}) {
 
 function cargarBootstrap() {
   showAppLoader("Cargando información...");
+  let bootstrapListo = false;
   return Promise.resolve()
     .then(() => apiJson("bootstrap"))
     .then(data => {
@@ -4749,15 +4828,26 @@ function cargarBootstrap() {
       aplicarTrabajadores(data.trabajadores);
       aplicarActivos(data.activos);
       aplicarIngresos(data.ingresos);
-      aplicarLiquidaciones(data.liquidaciones);
+      liquidacionesDetalle = [];
+      liquidacionesData = {};
+      liquidacionesExcluidas = new Set((data.liquidaciones?.excluidos || []).map(id => String(id)));
+      liquidacionesCargadas = false;
+      renderCardsTrabajador();
+      renderLiquidaciones();
       aplicarRecogidas(data.recogidas);
       pendientesPagoData = Array.isArray(data.pendientesPago) ? data.pendientesPago : [];
-      cargarIngresosCompletos({ showProgress: false }).catch(error => {
-        console.error("No se pudo cargar el historial completo:", error);
-      });
+      bootstrapListo = true;
       return data;
     })
-    .finally(() => hideAppLoader());
+    .finally(() => {
+      hideAppLoader();
+      if (bootstrapListo) {
+        cargarIngresosCompletosEnSegundoPlano();
+        cargarLiquidaciones({ silent: true }).catch(error => {
+          console.error("No se pudieron cargar las liquidaciones:", error);
+        });
+      }
+    });
 }
 
 function refrescarActivosSinSolapamiento() {

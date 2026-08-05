@@ -1269,35 +1269,83 @@ function iniciarRecogida(e) {
   }
 }
 
+function calcularPendienteLiquidacionBackend(nombre, pagosRows, completadosRows) {
+  const trabajadorNormalizado = normalizarNombreTrabajador(nombre);
+  let ultimaLiquidacion = null;
+
+  for (let i = 1; i < pagosRows.length; i++) {
+    if ((pagosRows[i][4] || "") !== "liquidarTrabajador") continue;
+    if (normalizarNombreTrabajador(pagosRows[i][1]) !== trabajadorNormalizado) continue;
+
+    const fecha = pagosRows[i][3] instanceof Date ? pagosRows[i][3].getTime() : new Date(pagosRows[i][3]).getTime();
+    if (!fecha || isNaN(fecha)) continue;
+    if (!ultimaLiquidacion || fecha > ultimaLiquidacion) ultimaLiquidacion = fecha;
+  }
+
+  let total = 0;
+  let servicios = 0;
+  for (let i = 1; i < completadosRows.length; i++) {
+    if (normalizarNombreTrabajador(completadosRows[i][4]) !== trabajadorNormalizado) continue;
+
+    const precio = Number(completadosRows[i][3]) || 0;
+    const fecha = completadosRows[i][5] instanceof Date ? completadosRows[i][5].getTime() : new Date(completadosRows[i][5]).getTime();
+    if (!precio || !fecha || isNaN(fecha)) continue;
+    if (ultimaLiquidacion && fecha <= ultimaLiquidacion) continue;
+
+    total += precio;
+    servicios++;
+  }
+
+  return { total, servicios, ultimaLiquidacion };
+}
+
 function liquidarTrabajador(e) {
   const nombre = e.parameter.trabajador;
   const valor = Number(e.parameter.valor);
   if (!nombre || !valor) return output({ error: "Datos incompletos" });
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
-  const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS, ss);
-  const data = trabajadoresSheet.getDataRange().getValues();
-  const hoy = new Date();
+  const lock = tomarCandadoOperacion();
+  if (!lock) return output({ error: "Sistema ocupado, intenta de nuevo" });
 
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][1] === nombre) {
-      const id = Date.now();
-      pagosSheet.appendRow([id, nombre, valor, hoy, "liquidarTrabajador"]);
-      return output({
-        ok: true,
-        liquidacion: {
-          id,
-          trabajadorId: data[i][0],
-          trabajador: nombre,
-          valor,
-          fecha: hoy.getTime(),
-          tipo: "liquidarTrabajador"
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const trabajadoresSheet = getOrCreateSheet("Trabajadores", TRABAJADORES_HEADERS, ss);
+    const pagosSheet = getOrCreateSheet("Pagos", PAGOS_HEADERS, ss);
+    const completadosSheet = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS, ss);
+    const data = trabajadoresSheet.getDataRange().getValues();
+    const pagosRows = pagosSheet.getDataRange().getValues();
+    const completadosRows = completadosSheet.getDataRange().getValues();
+    const hoy = new Date();
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][1] === nombre) {
+        const pendiente = calcularPendienteLiquidacionBackend(nombre, pagosRows, completadosRows);
+        if (!pendiente.servicios || pendiente.total <= 0) {
+          return output({ error: "No hay servicios pendientes por liquidar" });
         }
-      });
+        if (valor > pendiente.total) {
+          return output({ error: "El valor supera el saldo pendiente por liquidar" });
+        }
+
+        const id = Date.now();
+        pagosSheet.appendRow([id, nombre, valor, hoy, "liquidarTrabajador"]);
+        return output({
+          ok: true,
+          liquidacion: {
+            id,
+            trabajadorId: data[i][0],
+            trabajador: nombre,
+            valor,
+            fecha: hoy.getTime(),
+            tipo: "liquidarTrabajador"
+          }
+        });
+      }
     }
+    return output({ error: "Trabajador no encontrado" });
+  } finally {
+    lock.releaseLock();
   }
-  return output({ error: "Trabajador no encontrado" });
 }
 
 function getLiquidaciones() {
