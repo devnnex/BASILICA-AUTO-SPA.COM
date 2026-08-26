@@ -534,8 +534,16 @@ html.auth-checking body::after {
   background: linear-gradient(180deg, var(--success), color-mix(in srgb, var(--success) 76%, #000)) !important;
 }
 
+.clear-history-button {
+  background: linear-gradient(180deg, var(--danger), color-mix(in srgb, var(--danger) 76%, #000)) !important;
+}
+
 .income-filters {
   margin-top: -8px;
+}
+
+.role-restricted {
+  display: none !important;
 }
 
 .eyebrow {
@@ -1448,6 +1456,45 @@ button:active {
   padding: 0;
   justify-content: center;
   border-radius: 8px;
+}
+
+#ingresos .tabla {
+  min-width: 1040px;
+}
+
+.income-actor {
+  display: inline-flex;
+  min-width: 118px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.income-actor b {
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.income-actor small {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: .68rem;
+  font-weight: 720;
+}
+
+.income-actor small.boss {
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.income-actor small.admin {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 #trabajadores .tabla {

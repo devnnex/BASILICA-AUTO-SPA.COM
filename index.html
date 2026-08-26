@@ -187,6 +187,9 @@
       </div>
 
       <div class="filters-row income-filters">
+        <select id="filtroIngresosAutor" class="glass-select">
+          <option value="">Todos los usuarios</option>
+        </select>
         <select id="filtroIngresosTrabajador" class="glass-select">
           <option value="">Todos los trabajadores</option>
         </select>
@@ -197,9 +200,19 @@
           <option value="hoy">Hoy</option>
           <option value="ayer">Ayer</option>
           <option value="7">Ultimos 7 dias</option>
+          <option value="15">Ultimos 15 dias</option>
           <option value="30">Ultimos 30 dias</option>
+          <option value="anio">Este a&ntilde;o</option>
           <option value="todos">Todos</option>
         </select>
+        <button
+          id="btnLimpiarHistorial"
+          class="history-open-button clear-history-button hidden"
+          type="button"
+          title="Úsalo solo si deseas limpiar el historial al iniciar un nuevo año"
+        >
+          <i class="fa-solid fa-eraser"></i> Limpiar historial
+        </button>
       </div>
 
       <div class="kpis kpis-compact">
@@ -211,7 +224,7 @@
           <span id="kpiHoy">$0</span>
           <small>Ingresos hoy</small>
         </div>
-        <div class="kpi">
+        <div id="kpiMesCard" class="kpi">
           <span id="kpiMes">$0</span>
           <small>Ingresos del mes</small>
         </div>
@@ -231,6 +244,7 @@
             <th>Precio</th>
             <th>Pago</th>
             <th>Tiempo</th>
+            <th>Registrado por</th>
             <th>Acciones</th>
           </tr>
         </thead>

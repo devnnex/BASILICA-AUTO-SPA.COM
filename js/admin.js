@@ -92,6 +92,28 @@ function setAuthenticatedUI(session) {
   const role = document.getElementById("sessionRole");
   if (user) user.textContent = session?.nombre || session?.correo || "Usuario";
   if (role) role.textContent = session?.rol || "admin";
+  configurarVisibilidadPorRol(session);
+}
+
+function configurarVisibilidadPorRol(session) {
+  const esJefe = String(session?.rol || "").toLowerCase() === "jefe";
+  const botonInteligencia = document.querySelector('.sidebar button[data-section="ganancias"]');
+  const seccionInteligencia = document.getElementById("ganancias");
+  const filtroAutor = document.getElementById("filtroIngresosAutor");
+  const filtroFecha = document.getElementById("filtroIngresosFecha");
+  const kpiMesCard = document.getElementById("kpiMesCard");
+  const btnLimpiarHistorial = document.getElementById("btnLimpiarHistorial");
+
+  botonInteligencia?.classList.toggle("hidden", !esJefe);
+  seccionInteligencia?.classList.toggle("role-restricted", !esJefe);
+  filtroAutor?.classList.toggle("hidden", !esJefe);
+  kpiMesCard?.classList.toggle("hidden", !esJefe);
+  btnLimpiarHistorial?.classList.toggle("hidden", !esJefe);
+
+  if (filtroFecha) {
+    filtroFecha.disabled = !esJefe;
+    if (!esJefe) filtroFecha.value = "hoy";
+  }
 }
 
 function setLoggedOutUI() {
@@ -2521,7 +2543,9 @@ const buscador = document.getElementById("buscador");
 const btnRegistroManual = document.getElementById("btnRegistroManual");
 const btnHistorialPlaca = document.getElementById("btnHistorialPlaca");
 const btnPendientesPago = document.getElementById("btnPendientesPago");
+const btnLimpiarHistorial = document.getElementById("btnLimpiarHistorial");
 const filtroMetodoPago = document.getElementById("filtroMetodoPago");
+const filtroIngresosAutor = document.getElementById("filtroIngresosAutor");
 const filtroIngresosTrabajador = document.getElementById("filtroIngresosTrabajador");
 const filtroIngresosServicio = document.getElementById("filtroIngresosServicio");
 const filtroIngresosFecha = document.getElementById("filtroIngresosFecha");
@@ -2623,12 +2647,14 @@ function cargarIngresos() {
 function getIngresosFiltrados() {
   const q = buscador?.value.toLowerCase().trim() || "";
   const metodo = filtroMetodoPago?.value || "";
+  const autor = filtroIngresosAutor?.value || "";
   const trabajador = filtroIngresosTrabajador?.value || "";
   const servicio = filtroIngresosServicio?.value || "";
   const fechaFiltro = filtroIngresosFecha?.value || "hoy";
 
   return ingresosDetalle.filter(i => {
     const fecha = toDateSafe(i.fecha);
+    const fechaVisible = currentSession?.rol === "admin" ? toDateSafe(i.registrado_en || i.fecha) : fecha;
     const metodoIngreso = i.estado_pago === "pendiente" ? "pendiente" : (i.metodo_pago || "sin_registrar");
     const pagos = Array.isArray(i.pagos) ? i.pagos : [];
     const coincideMetodo =
@@ -2640,13 +2666,20 @@ function getIngresosFiltrados() {
       !q ||
       (i.placa || "").toLowerCase().includes(q) ||
       (i.trabajador || "").toLowerCase().includes(q) ||
-      (i.servicio || "").toLowerCase().includes(q);
+      (i.servicio || "").toLowerCase().includes(q) ||
+      (i.autor_nombre || "").toLowerCase().includes(q);
+
+    const coincideAutor =
+      !autor ||
+      (autor === "__sin_identificar__" && !i.autor_correo) ||
+      String(i.autor_correo || "").toLowerCase() === autor.toLowerCase();
 
     return coincideBusqueda &&
       coincideMetodo &&
+      coincideAutor &&
       (!trabajador || i.trabajador === trabajador) &&
       (!servicio || i.servicio === servicio) &&
-      coincideFiltroFecha(fecha, fechaFiltro);
+      coincideFiltroFecha(fechaVisible, fechaFiltro);
   }).sort((a, b) => {
     const fechaA = Number(toTimestamp(a.fecha) || 0);
     const fechaB = Number(toTimestamp(b.fecha) || 0);
@@ -2681,6 +2714,7 @@ function coincideFiltroFecha(fecha, filtro) {
     ayer.setDate(hoy.getDate() - 1);
     return esMismoDia(d, ayer);
   }
+  if (filtro === "anio") return d.getFullYear() === hoy.getFullYear();
 
   const dias = Number(filtro);
   if (!dias) return true;
@@ -2717,8 +2751,45 @@ function renderRegistroIngresoBadge(i) {
 }
 
 function renderFiltrosIngresos() {
+  const autorActual = filtroIngresosAutor?.value || "";
   const trabajadorActual = filtroIngresosTrabajador?.value || "";
   const servicioActual = filtroIngresosServicio?.value || "";
+
+  if (filtroIngresosAutor) {
+    const usuariosPorCorreo = new Map();
+    trabajadoresData
+      .filter(usuario => ["admin", "jefe"].includes(String(usuario.rol || "").toLowerCase()))
+      .forEach(usuario => {
+        const correo = String(usuario.correo || "").trim().toLowerCase();
+        if (!correo) return;
+        usuariosPorCorreo.set(correo, {
+          nombre: usuario.nombre || correo,
+          rol: String(usuario.rol || "").toLowerCase()
+        });
+      });
+    ingresosDetalle.forEach(ingreso => {
+      const correo = String(ingreso.autor_correo || "").trim().toLowerCase();
+      if (!correo || usuariosPorCorreo.has(correo)) return;
+      usuariosPorCorreo.set(correo, {
+        nombre: ingreso.autor_nombre || correo,
+        rol: String(ingreso.autor_rol || "").toLowerCase()
+      });
+    });
+
+    filtroIngresosAutor.innerHTML = `<option value="">Todos los usuarios</option>`;
+    [...usuariosPorCorreo.entries()]
+      .sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, "es"))
+      .forEach(([correo, usuario]) => {
+        const rol = usuario.rol === "jefe" ? "Jefe" : "Administrador";
+        filtroIngresosAutor.innerHTML += `<option value="${escapeHTML(correo)}">${escapeHTML(usuario.nombre)} (${rol})</option>`;
+      });
+    if (ingresosDetalle.some(ingreso => !ingreso.autor_correo)) {
+      filtroIngresosAutor.innerHTML += `<option value="__sin_identificar__">Registros anteriores</option>`;
+    }
+    if ([...filtroIngresosAutor.options].some(option => option.value === autorActual)) {
+      filtroIngresosAutor.value = autorActual;
+    }
+  }
 
   if (filtroIngresosTrabajador) {
     const trabajadores = [...new Set(ingresosDetalle.map(i => i.trabajador).filter(Boolean))].sort();
@@ -2752,7 +2823,7 @@ function renderTablaIngresos() {
   const pagina = filtrados.slice(inicio, inicio + ingresosPageSize);
 
   if (!filtrados.length) {
-    tabla.innerHTML = `<tr><td colspan="8" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
+    tabla.innerHTML = `<tr><td colspan="9" style="opacity:.6;text-align:center;">No hay registros</td></tr>`;
     renderPaginacionIngresos(0, 0);
     return;
   }
@@ -2770,17 +2841,8 @@ function renderTablaIngresos() {
         <td>${precio}</td>
         <td>${renderPagoIngreso(i)}</td>
         <td>${escapeHTML(i.tiempo || "-")}</td>
-        <td>
-          <button
-            type="button"
-            class="delete delete-income"
-            data-id="${escapeHTML(i.id)}"
-            title="Eliminar servicio realizado"
-            aria-label="Eliminar servicio realizado"
-          >
-            <i class="fa-solid fa-trash-can"></i>
-          </button>
-        </td>
+        <td>${renderAutorIngreso(i)}</td>
+        <td>${renderAccionEliminarIngreso(i)}</td>
       </tr>
     `;
   });
@@ -2790,6 +2852,34 @@ function renderTablaIngresos() {
   });
 
   renderPaginacionIngresos(filtrados.length, totalPaginas);
+}
+
+function renderAccionEliminarIngreso(ingreso) {
+  if (currentSession?.rol !== "jefe") return `<span class="income-action-locked" title="Solo el jefe puede eliminar">-</span>`;
+  return `
+    <button
+      type="button"
+      class="delete delete-income"
+      data-id="${escapeHTML(ingreso.id)}"
+      title="Eliminar servicio realizado"
+      aria-label="Eliminar servicio realizado"
+    >
+      <i class="fa-solid fa-trash-can"></i>
+    </button>
+  `;
+}
+
+function renderAutorIngreso(ingreso) {
+  const nombre = ingreso?.autor_nombre || "Registro anterior";
+  const rol = String(ingreso?.autor_rol || "").toLowerCase();
+  const etiquetaRol = rol === "jefe" ? "Jefe" : (rol === "admin" ? "Administrador" : "Sin identificar");
+  const claseRol = rol === "jefe" ? "boss" : (rol === "admin" ? "admin" : "neutral");
+  return `
+    <span class="income-actor">
+      <b>${escapeHTML(nombre)}</b>
+      <small class="${claseRol}">${etiquetaRol}</small>
+    </span>
+  `;
 }
 
 function eliminarServicioRealizado(id) {
@@ -2837,6 +2927,54 @@ function eliminarServicioRealizado(id) {
       })
       .catch(() => {
         SwalPremium.fire("Error de red", "No se pudo eliminar el servicio realizado.", "error");
+      })
+      .finally(() => hideAppLoader());
+  });
+}
+
+function confirmarLimpiezaHistorial() {
+  if (currentSession?.rol !== "jefe") return;
+
+  SwalPremium.fire({
+    title: "¿Limpiar todo el historial?",
+    html: `
+      <div class="delete-income-summary">
+        <span>Se eliminarán permanentemente todos los servicios realizados.</span>
+        <span>Recomendado únicamente al iniciar un nuevo año.</span>
+      </div>
+    `,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Sí, eliminar todo",
+    cancelButtonText: "Cancelar",
+    confirmButtonColor: "#d94f4f"
+  }).then(result => {
+    if (!result.isConfirmed) return;
+
+    showAppLoader("Limpiando historial...");
+    fetch(`${API_URL}?action=eliminarHistorialServiciosRealizados`)
+      .then(res => res.json())
+      .then(resp => {
+        if (resp.error) {
+          SwalPremium.fire("No se pudo limpiar", resp.error, "error");
+          return;
+        }
+
+        ingresosDetalle = [];
+        ingresosResumen = null;
+        ingresosCompletosCargados = false;
+        return Promise.all([
+          cargarIngresos({ silent: true }),
+          cargarLiquidaciones({ silent: true }),
+          cargarPendientesPago({ silent: true })
+        ]).then(() => {
+          const cantidad = Number(resp.eliminados || 0);
+          const mensaje = cantidad ? `${cantidad} registros fueron eliminados permanentemente.` : "El historial ya estaba vacío.";
+          SwalPremium.fire("Historial actualizado", mensaje, "success");
+        });
+      })
+      .catch(() => {
+        SwalPremium.fire("Error de red", "No se pudo limpiar el historial.", "error");
       })
       .finally(() => hideAppLoader());
   });
@@ -3206,6 +3344,7 @@ function resetRenderTablaIngresos() {
 if (buscador) buscador.oninput = resetRenderTablaIngresos;
 if (filtroMetodoPago) filtroMetodoPago.onchange = resetRenderTablaIngresos;
 if (btnRegistroManual) btnRegistroManual.onclick = prepararRegistroManual;
+if (filtroIngresosAutor) filtroIngresosAutor.onchange = resetRenderTablaIngresos;
 if (filtroIngresosTrabajador) filtroIngresosTrabajador.onchange = resetRenderTablaIngresos;
 if (filtroIngresosServicio) filtroIngresosServicio.onchange = resetRenderTablaIngresos;
 if (filtroIngresosFecha) filtroIngresosFecha.onchange = resetRenderTablaIngresos;
@@ -3214,6 +3353,9 @@ if (btnHistorialPlaca) {
 }
 if (btnPendientesPago) {
   btnPendientesPago.addEventListener("click", () => abrirModalPendientesPago());
+}
+if (btnLimpiarHistorial) {
+  btnLimpiarHistorial.addEventListener("click", confirmarLimpiezaHistorial);
 }
 
 /* ---------- LLAMADA INICIAL ---------- */
@@ -4096,7 +4238,7 @@ function cargarIngresos(options = {}) {
     .catch(err => {
       console.error("Error cargando ingresos:", err);
       if (tabla) {
-        tabla.innerHTML = `<tr><td colspan="8" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
+        tabla.innerHTML = `<tr><td colspan="9" style="opacity:.6;text-align:center;">Error cargando registros</td></tr>`;
       }
     })
     .finally(() => {
@@ -4565,6 +4707,7 @@ function aplicarTrabajadores(trabajadores) {
   renderTrabajadores();
   renderFiltroTrabajadores();
   renderFiltroLiquidaciones();
+  renderFiltrosIngresos();
   renderLiquidaciones();
   return trabajadoresData;
 }

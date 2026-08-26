@@ -9,8 +9,7 @@ const COMPLETADOS_HEADERS = [
   "ID", "Placa", "Servicio", "Precio", "Trabajador", "Fecha_Fin", "ID_Original",
   "Tiempo", "Metodo_Pago", "Estado_Pago", "Fecha_Pago",
   "Pago_1_Metodo", "Pago_1_Monto", "Pago_2_Metodo", "Pago_2_Monto",
-  "Adicionales_JSON", "Precio_Base", "Tipo_Registro", "Nota",
-  "Registrado_Por_Correo", "Registrado_Por_Nombre", "Registrado_Por_Rol", "Registrado_En"
+  "Adicionales_JSON", "Precio_Base", "Tipo_Registro", "Nota"
 ];
 
 const SESIONES_HEADERS = ["Token", "Correo", "Nombre", "Rol", "Creado", "Expira", "Activo"];
@@ -33,7 +32,7 @@ function doGet(e) {
     case "servicios": return getServicios();
     case "agendar": return agendarLavado(e);
     case "activos": return getLavadosActivosOptimizado();
-    case "bootstrap": return getBootstrapData(e);
+    case "bootstrap": return getBootstrapData();
     case "confirmar": return confirmarLavado(e);
     case "registrarServicioRealizadoManual": return registrarServicioRealizadoManual(e);
     case "eliminarLavadoActivo": return eliminarLavadoActivo(e);
@@ -42,7 +41,7 @@ function doGet(e) {
     case "historialPlaca": return getHistorialPlaca(e);
     case "crearServicio": return crearServicio(e);
     case "crearTrabajador": return crearTrabajador(e);
-    case "ingresos": return getIngresos(e);
+    case "ingresos": return getIngresos();
     case "trabajadores": return getTrabajadores();
     case "editarServicio": return editarServicio(e);
     case "eliminarServicio": return eliminarServicio(e);
@@ -64,10 +63,9 @@ function doGet(e) {
     case "getPagosTrabajador": return getPagosTrabajador(e);
     case "agregarGastoMaterial": return agregarGastoMaterial(e);
     case "getGastosPorLavado": return getGastosPorLavado(e);
-    case "pendientesPago": return getPendientesPago(e);
+    case "pendientesPago": return getPendientesPago();
     case "marcarPagoEfectuado": return marcarPagoEfectuado(e);
     case "eliminarServicioRealizado": return eliminarServicioRealizado(e);
-    case "eliminarHistorialServiciosRealizados": return eliminarHistorialServiciosRealizados(e);
     default: return output({ error: "Accion no valida" });
   }
 }
@@ -143,35 +141,6 @@ function normalizarRol(rol) {
 
 function normalizarNombreTrabajador(nombre) {
   return String(nombre || "").trim().toLowerCase();
-}
-
-function getDatosActorRegistro(auth) {
-  return [
-    normalizarCorreo(auth && auth.correo),
-    String(auth && auth.nombre || "").trim(),
-    normalizarRol(auth && auth.rol)
-  ];
-}
-
-function esFechaDeHoySistema(value) {
-  const fecha = value instanceof Date ? value : new Date(value);
-  if (!fecha || isNaN(fecha.getTime())) return false;
-  const zona = Session.getScriptTimeZone();
-  return Utilities.formatDate(fecha, zona, "yyyy-MM-dd") === Utilities.formatDate(new Date(), zona, "yyyy-MM-dd");
-}
-
-function registroCompletadoVisibleParaActor(row, auth) {
-  const rol = normalizarRol(auth && auth.rol);
-  if (rol === "jefe") return true;
-  if (rol !== "admin") return false;
-
-  return esFechaDeHoySistema(row[22] || row[5]) &&
-    normalizarCorreo(row[19]) === normalizarCorreo(auth && auth.correo);
-}
-
-function filtrarFilasCompletadosPorActor(rows, auth) {
-  if (!rows || !rows.length) return [];
-  return [rows[0]].concat(rows.slice(1).filter(row => registroCompletadoVisibleParaActor(row, auth)));
 }
 
 function trabajadorTieneLavadoActivo(nombre, activosData) {
@@ -574,7 +543,6 @@ function confirmarLavado(e) {
       const adicionales = getAdicionalesLavadoInterno(data[i][0]);
       const pago1 = pagosInfo.pagos[0] || {};
       const pago2 = pagosInfo.pagos[1] || {};
-      const actor = getDatosActorRegistro(e.auth);
 
       completados.appendRow([
         data[i][0],
@@ -595,11 +563,7 @@ function confirmarLavado(e) {
         JSON.stringify(adicionales),
         Math.max(0, precioFinal - adicionales.reduce((acc, item) => acc + Number(item.precio || 0), 0)),
         "",
-        "",
-        actor[0],
-        actor[1],
-        actor[2],
-        fechaFin
+        ""
       ]);
       actualizarIndiceIngreso(ss, {
         precio: precioFinal,
@@ -668,7 +632,6 @@ function registrarServicioRealizadoManual(e) {
   const id = Date.now();
   const pago1 = pagosInfo.pagos[0] || {};
   const pago2 = pagosInfo.pagos[1] || {};
-  const actor = getDatosActorRegistro(e.auth);
 
   getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS, ss).appendRow([
     id,
@@ -689,11 +652,7 @@ function registrarServicioRealizadoManual(e) {
     "[]",
     precio,
     "manual",
-    nota,
-    actor[0],
-    actor[1],
-    actor[2],
-    new Date()
+    nota
   ]);
   actualizarIndiceIngreso(ss, { precio, fecha: fechaFin, trabajador, servicio }, 1);
 
@@ -744,7 +703,6 @@ function eliminarLavadoActivo(e) {
           if (pagosInfo.error) return output({ error: pagosInfo.error });
           const pago1 = pagosInfo.pagos[0] || {};
           const pago2 = pagosInfo.pagos[1] || {};
-          const actor = getDatosActorRegistro(e.auth);
 
           completados.appendRow([
             data[i][0],
@@ -765,11 +723,7 @@ function eliminarLavadoActivo(e) {
             "[]",
             pagoCancelacion,
             "cancelado",
-            motivoCancelacion,
-            actor[0],
-            actor[1],
-            actor[2],
-            fechaFin
+            motivoCancelacion
           ]);
           actualizarIndiceIngreso(ss, {
             precio: pagoCancelacion,
@@ -803,7 +757,7 @@ function eliminarLavadoActivo(e) {
   }
 }
 
-function getIngresos(e) {
+function getIngresos() {
   const sheet = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
   const lastRow = sheet.getLastRow();
   const data = lastRow
@@ -812,7 +766,6 @@ function getIngresos(e) {
 
   const detalle = [];
   for (let i = 1; i < data.length; i++) {
-    if (!registroCompletadoVisibleParaActor(data[i], e.auth)) continue;
     const precio = Number(data[i][3]) || 0;
     const fecha = data[i][5] instanceof Date ? data[i][5].getTime() : new Date(data[i][5]).getTime();
     const estadoPago = data[i][9] || "pagado";
@@ -851,10 +804,6 @@ function getIngresos(e) {
       precio_base: Number(data[i][16]) || Math.max(0, precio - adicionales.reduce((acc, item) => acc + Number(item.precio || 0), 0)),
       tipo_registro: data[i][17] || "",
       nota: data[i][18] || "",
-      autor_correo: data[i][19] || "",
-      autor_nombre: data[i][20] || "",
-      autor_rol: data[i][21] || "",
-      registrado_en: data[i][22] instanceof Date ? data[i][22].getTime() : (data[i][22] ? new Date(data[i][22]).getTime() : fecha),
       estado_pago: estadoPago,
       fecha_pago: data[i][10] instanceof Date ? data[i][10].getTime() : (data[i][10] ? new Date(data[i][10]).getTime() : fecha)
     });
@@ -875,7 +824,6 @@ function getHistorialPlaca(e) {
 
   const detalle = [];
   for (let i = 1; i < data.length; i++) {
-    if (!registroCompletadoVisibleParaActor(data[i], e.auth)) continue;
     if (normalizarPlaca(data[i][1]) !== placa) continue;
     if ((data[i][9] || "pagado") === "pendiente") continue;
 
@@ -904,12 +852,11 @@ function getHistorialPlaca(e) {
   });
 }
 
-function getPendientesPago(e) {
+function getPendientesPago() {
   const data = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS).getDataRange().getValues();
   const pendientes = [];
 
   for (let i = 1; i < data.length; i++) {
-    if (!registroCompletadoVisibleParaActor(data[i], e.auth)) continue;
     const estadoPago = data[i][9] || "pagado";
     if (estadoPago !== "pendiente") continue;
 
@@ -1017,9 +964,6 @@ function marcarPagoEfectuado(e) {
 
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) !== String(id)) continue;
-      if (!registroCompletadoVisibleParaActor(data[i], e.auth)) {
-        return output({ error: "No tienes permisos para modificar este servicio" });
-      }
       const precio = Number(data[i][3]) || 0;
       const pagosInfo = getPagosDesdeParametros(e, precio, "pagado");
       if (pagosInfo.error) return output({ error: pagosInfo.error });
@@ -1048,8 +992,8 @@ function eliminarServicioRealizado(e) {
   if (!id) return output({ error: "ID requerido" });
 
   const rol = normalizarRol(e.auth && e.auth.rol);
-  if (rol !== "jefe") {
-    return output({ error: "Solo el jefe puede eliminar servicios realizados" });
+  if (rol !== "admin" && rol !== "jefe") {
+    return output({ error: "No tienes permisos para eliminar servicios realizados" });
   }
 
   const lock = tomarCandadoOperacion();
@@ -1061,9 +1005,6 @@ function eliminarServicioRealizado(e) {
 
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(id)) {
-        if (!registroCompletadoVisibleParaActor(data[i], e.auth)) {
-          return output({ error: "No tienes permisos para eliminar este servicio" });
-        }
         const eliminado = {
           id: data[i][0],
           placa: data[i][1],
@@ -1080,30 +1021,6 @@ function eliminarServicioRealizado(e) {
     }
 
     return output({ error: "Servicio realizado no encontrado" });
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function eliminarHistorialServiciosRealizados(e) {
-  if (normalizarRol(e.auth && e.auth.rol) !== "jefe") {
-    return output({ error: "Solo el jefe puede limpiar el historial de servicios realizados" });
-  }
-
-  const lock = tomarCandadoOperacion();
-  if (!lock) return output({ error: "Sistema ocupado, intenta de nuevo" });
-
-  try {
-    const sh = getOrCreateSheet("Lavados_Completados", COMPLETADOS_HEADERS);
-    const totalEliminados = Math.max(0, sh.getLastRow() - 1);
-
-    if (totalEliminados > 0) {
-      const ancho = Math.max(sh.getLastColumn(), COMPLETADOS_HEADERS.length);
-      sh.getRange(2, 1, totalEliminados, ancho).clearContent();
-    }
-
-    reconstruirIndiceIngresos();
-    return output({ ok: true, eliminados: totalEliminados });
   } finally {
     lock.releaseLock();
   }
@@ -1687,7 +1604,7 @@ function getGastosPorLavado(e) {
   }
   return output(gastos);
 }
-function getBootstrapData(e) {
+function getBootstrapData() {
   const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
   const serviciosRows = getBootstrapRows(spreadsheet, "Servicios");
   const trabajadoresRows = getBootstrapRows(spreadsheet, "Trabajadores", TRABAJADORES_HEADERS);
@@ -1697,14 +1614,12 @@ function getBootstrapData(e) {
   const adicionalesRows = getBootstrapRows(spreadsheet, "Lavado_Adicionales", ADICIONALES_HEADERS);
   const gastosRows = getBootstrapRows(spreadsheet, "gasto_materiales");
   const completadosRecientes = getBootstrapRowsLimit(spreadsheet, "Lavados_Completados", COMPLETADOS_HEADERS, BOOTSTRAP_INGRESOS_LIMIT);
-  const completadosVisibles = filtrarFilasCompletadosPorActor(completadosRecientes, e.auth);
-  const actorEsJefe = normalizarRol(e.auth && e.auth.rol) === "jefe";
-  const resumenIngresos = actorEsJefe ? getResumenIndiceIngresos(spreadsheet) : { listo: false };
+  const resumenIngresos = getResumenIndiceIngresos(spreadsheet);
 
   const adicionalesPorLavado = agruparAdicionalesBootstrap(adicionalesRows);
   const gastosPorLavado = agruparGastosBootstrap(gastosRows);
   const trabajadores = mapearTrabajadoresBootstrap(trabajadoresRows);
-  const ingresos = construirIngresosBootstrap(completadosVisibles);
+  const ingresos = construirIngresosBootstrap(completadosRecientes);
   ingresos.resumen = resumenIngresos;
 
   return output({
@@ -1984,8 +1899,6 @@ function construirIngresosBootstrap(rows) {
       pagos, adicionales,
       precio_base: Number(row[16]) || Math.max(0, precio - adicionales.reduce((total, item) => total + Number(item.precio || 0), 0)),
       tipo_registro: row[17] || "", nota: row[18] || "", estado_pago: estadoPago,
-      autor_correo: row[19] || "", autor_nombre: row[20] || "", autor_rol: row[21] || "",
-      registrado_en: bootstrapTimestamp(row[22]) || fecha,
       fecha_pago: bootstrapTimestamp(row[10]) || fecha
     };
   }).filter(Boolean);
